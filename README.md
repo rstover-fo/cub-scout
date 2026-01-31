@@ -32,11 +32,17 @@ AI-powered college football scouting intelligence agent.
 # Seed test data for development
 python scripts/run_pipeline.py --seed
 
-# Process unprocessed reports through Claude
+# Crawl 247Sports recruiting data
+python scripts/run_pipeline.py --crawl-247 --teams texas ohio-state --years 2025
+
+# Process reports through Claude summarization
 python scripts/run_pipeline.py --process
 
-# Run full pipeline (seed + process)
-python scripts/run_pipeline.py --all
+# Link entities (connect reports to player profiles)
+python scripts/run_pipeline.py --link
+
+# Run full pipeline
+python scripts/run_pipeline.py --all --teams texas --years 2025
 ```
 
 ## Testing
@@ -50,10 +56,16 @@ pytest tests/ -v
 ```
 cfb-scout/
 ├── src/
-│   ├── crawlers/       # Data source crawlers (Reddit pending)
-│   ├── processing/     # Claude summarization pipeline
-│   │   ├── summarizer.py   # Sentiment & summary extraction
-│   │   └── pipeline.py     # Batch processing orchestration
+│   ├── crawlers/       # Data source crawlers
+│   │   ├── base.py         # BaseCrawler, CrawlResult
+│   │   └── recruiting/     # Recruiting site crawlers
+│   │       └── two47.py    # 247Sports commits crawler
+│   ├── processing/     # Processing pipeline
+│   │   ├── summarizer.py       # Sentiment & summary extraction
+│   │   ├── pipeline.py         # Batch processing orchestration
+│   │   ├── entity_extraction.py # Player name extraction (regex + Claude)
+│   │   ├── entity_linking.py   # Connect reports to player profiles
+│   │   └── player_matching.py  # Fuzzy matching against roster/recruits
 │   └── storage/        # Database operations
 │       ├── db.py           # Connection & CRUD helpers
 │       └── schema.sql      # Supabase schema
@@ -80,8 +92,16 @@ All tables live in the `scouting` schema:
 - [ ] Reddit crawler (awaiting API approval)
 - [x] End-to-end pipeline verified
 
-## Next Steps (Phase 2)
+## Phase 2 Status
 
-- Add 247Sports scraper
-- Entity linking to existing roster data
-- Player profile aggregation
+- [x] 247Sports commits crawler
+- [x] Player entity extraction (regex + Claude)
+- [x] Fuzzy name matching against roster/recruits
+- [x] Scouting player profile creation
+- [x] Report-to-player linking
+
+## Next Steps (Phase 3)
+
+- Player profile aggregation and grading
+- Trend analysis over time
+- Dashboard/API for querying scouting data
