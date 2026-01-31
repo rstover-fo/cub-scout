@@ -1,0 +1,96 @@
+-- CFB Scout Schema
+-- Deploy to Supabase using SQL Editor or migration tool
+
+CREATE SCHEMA IF NOT EXISTS scouting;
+
+-- Raw crawled content
+CREATE TABLE IF NOT EXISTS scouting.reports (
+    id SERIAL PRIMARY KEY,
+    source_url TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    published_at TIMESTAMPTZ,
+    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    content_type TEXT NOT NULL CHECK (content_type IN ('article', 'social', 'forum')),
+    player_ids BIGINT[] DEFAULT '{}',
+    team_ids TEXT[] DEFAULT '{}',
+    raw_text TEXT NOT NULL,
+    summary TEXT,
+    sentiment_score NUMERIC(3,2) CHECK (sentiment_score BETWEEN -1 AND 1),
+    processed_at TIMESTAMPTZ,
+    UNIQUE (source_url)
+);
+
+CREATE INDEX idx_reports_source ON scouting.reports (source_name);
+CREATE INDEX idx_reports_crawled ON scouting.reports (crawled_at DESC);
+CREATE INDEX idx_reports_unprocessed ON scouting.reports (id) WHERE processed_at IS NULL;
+CREATE INDEX idx_reports_players ON scouting.reports USING GIN (player_ids);
+CREATE INDEX idx_reports_teams ON scouting.reports USING GIN (team_ids);
+
+-- Player scouting profiles
+CREATE TABLE IF NOT EXISTS scouting.players (
+    id SERIAL PRIMARY KEY,
+    roster_player_id BIGINT,  -- Links to core.roster.id
+    recruit_id BIGINT,        -- Links to recruiting.recruits.id
+    name TEXT NOT NULL,
+    position TEXT,
+    team TEXT,
+    class_year INT,
+    current_status TEXT CHECK (current_status IN ('recruit', 'active', 'transfer', 'draft_eligible', 'drafted')),
+    composite_grade INT CHECK (composite_grade BETWEEN 0 AND 100),
+    traits JSONB DEFAULT '{}',
+    draft_projection TEXT,
+    comps TEXT[] DEFAULT '{}',
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (name, team, class_year)
+);
+
+CREATE INDEX idx_players_team ON scouting.players (team);
+CREATE INDEX idx_players_status ON scouting.players (current_status);
+CREATE INDEX idx_players_grade ON scouting.players (composite_grade DESC NULLS LAST);
+
+-- Player timeline for longitudinal tracking
+CREATE TABLE IF NOT EXISTS scouting.player_timeline (
+    id SERIAL PRIMARY KEY,
+    player_id INT NOT NULL REFERENCES scouting.players(id) ON DELETE CASCADE,
+    snapshot_date DATE NOT NULL,
+    status TEXT,
+    sentiment_score NUMERIC(3,2),
+    grade_at_time INT,
+    traits_at_time JSONB,
+    key_narratives TEXT[] DEFAULT '{}',
+    sources_count INT DEFAULT 0,
+    UNIQUE (player_id, snapshot_date)
+);
+
+CREATE INDEX idx_timeline_player ON scouting.player_timeline (player_id);
+CREATE INDEX idx_timeline_date ON scouting.player_timeline (snapshot_date DESC);
+
+-- Team roster analysis
+CREATE TABLE IF NOT EXISTS scouting.team_rosters (
+    id SERIAL PRIMARY KEY,
+    team TEXT NOT NULL,
+    season INT NOT NULL,
+    position_groups JSONB DEFAULT '{}',
+    overall_sentiment NUMERIC(3,2),
+    trajectory TEXT CHECK (trajectory IN ('improving', 'stable', 'declining')),
+    key_storylines TEXT[] DEFAULT '{}',
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (team, season)
+);
+
+CREATE INDEX idx_team_rosters_team ON scouting.team_rosters (team);
+CREATE INDEX idx_team_rosters_season ON scouting.team_rosters (season DESC);
+
+-- Crawl job tracking
+CREATE TABLE IF NOT EXISTS scouting.crawl_jobs (
+    id SERIAL PRIMARY KEY,
+    source_name TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+    records_crawled INT DEFAULT 0,
+    records_new INT DEFAULT 0,
+    error_message TEXT
+);
+
+CREATE INDEX idx_crawl_jobs_source ON scouting.crawl_jobs (source_name, started_at DESC);
