@@ -49,7 +49,9 @@ class BaseCrawler(ABC):
         logger.info(
             f"Completed {self.source_name} crawl: "
             f"{result.records_new}/{result.records_crawled} new records "
-            f"in {duration:.1f}s" if duration else ""
+            f"in {duration:.1f}s"
+            if duration
+            else ""
         )
         if result.errors:
             logger.warning(f"Errors during crawl: {len(result.errors)}")

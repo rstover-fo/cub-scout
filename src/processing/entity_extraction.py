@@ -11,21 +11,40 @@ logger = logging.getLogger(__name__)
 
 # Common CFB position abbreviations
 POSITIONS = [
-    "QB", "RB", "WR", "TE", "OL", "OT", "OG", "C",
-    "DL", "DT", "DE", "EDGE", "LB", "ILB", "OLB", "MLB",
-    "DB", "CB", "S", "FS", "SS", "K", "P", "LS", "ATH",
+    "QB",
+    "RB",
+    "WR",
+    "TE",
+    "OL",
+    "OT",
+    "OG",
+    "C",
+    "DL",
+    "DT",
+    "DE",
+    "EDGE",
+    "LB",
+    "ILB",
+    "OLB",
+    "MLB",
+    "DB",
+    "CB",
+    "S",
+    "FS",
+    "SS",
+    "K",
+    "P",
+    "LS",
+    "ATH",
 ]
 
 # Regex to find "Position Name" patterns
 POSITION_NAME_PATTERN = re.compile(
-    rf'\b({"|".join(POSITIONS)})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
-    re.IGNORECASE
+    rf"\b({'|'.join(POSITIONS)})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", re.IGNORECASE
 )
 
 # Regex to find capitalized names (2-4 words)
-NAME_PATTERN = re.compile(
-    r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b'
-)
+NAME_PATTERN = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b")
 
 
 def normalize_name(name: str) -> str:
@@ -58,13 +77,51 @@ def extract_player_mentions(text: str) -> list[str]:
     # Find standalone capitalized names that look like player names
     # Filter out common non-names
     SKIP_WORDS = {
-        "The", "This", "That", "When", "Where", "What", "Which", "While",
-        "After", "Before", "During", "With", "From", "Into", "About",
-        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-        "January", "February", "March", "April", "May", "June", "July",
-        "August", "September", "October", "November", "December",
-        "Spring", "Summer", "Fall", "Winter", "Practice", "Game",
-        "Texas", "Ohio State", "Alabama", "Georgia", "Michigan",  # Team names
+        "The",
+        "This",
+        "That",
+        "When",
+        "Where",
+        "What",
+        "Which",
+        "While",
+        "After",
+        "Before",
+        "During",
+        "With",
+        "From",
+        "Into",
+        "About",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+        "Spring",
+        "Summer",
+        "Fall",
+        "Winter",
+        "Practice",
+        "Game",
+        "Texas",
+        "Ohio State",
+        "Alabama",
+        "Georgia",
+        "Michigan",  # Team names
     }
 
     for match in NAME_PATTERN.finditer(text):
@@ -118,13 +175,14 @@ Return a JSON array of objects with these fields:
 Return only the JSON array, no other text. If no players mentioned, return [].
 
 Example:
-[{{"name": "Arch Manning", "position": "QB", "team": "Texas", "context": "starter"}}]"""
+[{{"name": "Arch Manning", "position": "QB", "team": "Texas", "context": "starter"}}]""",
             }
         ],
     )
 
     try:
         import json
+
         response_text = response.content[0].text.strip()
 
         # Handle markdown code blocks

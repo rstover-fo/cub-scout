@@ -1,8 +1,6 @@
 """Tests for 247Sports crawler."""
 
-import pytest
-
-from src.crawlers.recruiting.two47 import Two47Crawler, build_team_commits_url, build_player_url
+from src.crawlers.recruiting.two47 import build_team_commits_url, build_player_url
 
 
 def test_build_team_commits_url():

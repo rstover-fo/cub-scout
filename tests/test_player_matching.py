@@ -1,7 +1,5 @@
 """Tests for player matching against roster data."""
 
-import pytest
-
 from src.processing.player_matching import (
     fuzzy_match_name,
     find_roster_match,

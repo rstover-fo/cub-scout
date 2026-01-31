@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class SummaryResult(TypedDict):
     """Result of summarization."""
+
     summary: str
     sentiment_score: float
     player_mentions: list[str]
@@ -42,7 +43,7 @@ Return ONLY a number between -1.0 (very negative) and 1.0 (very positive).
 
 Text: {text[:1000]}
 
-Sentiment score:"""
+Sentiment score:""",
             }
         ],
     )
@@ -89,7 +90,7 @@ Respond with JSON only:
     "player_mentions": ["list", "of", "player", "names"],
     "team_mentions": ["list", "of", "team", "names"],
     "key_topics": ["recruiting", "transfer_portal", "injury", "performance", etc.]
-}}"""
+}}""",
             }
         ],
     )

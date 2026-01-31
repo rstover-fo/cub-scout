@@ -1,7 +1,5 @@
 """Tests for player entity extraction."""
 
-import pytest
-
 from src.processing.entity_extraction import extract_player_mentions, normalize_name
 
 

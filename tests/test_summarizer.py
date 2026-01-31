@@ -1,9 +1,7 @@
 # tests/test_summarizer.py
 """Tests for Claude summarization."""
 
-import pytest
-
-from src.processing.summarizer import extract_sentiment, summarize_report
+from src.processing.summarizer import extract_sentiment
 
 
 def test_extract_sentiment_positive():

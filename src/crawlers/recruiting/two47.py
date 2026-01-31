@@ -198,7 +198,9 @@ class Two47Crawler(BaseCrawler):
                             )
                             if commit.city and commit.state:
                                 raw_text += f" from {commit.city}, {commit.state}"
-                            raw_text += f". Committed to {team.replace('-', ' ').title()} for {year}."
+                            raw_text += (
+                                f". Committed to {team.replace('-', ' ').title()} for {year}."
+                            )
                             if commit.rating:
                                 raw_text += f" Rating: {commit.rating}."
 

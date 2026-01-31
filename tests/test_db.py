@@ -1,8 +1,7 @@
 # tests/test_db.py
 """Tests for database connection."""
 
-import pytest
-from src.storage.db import get_connection, insert_report, get_unprocessed_reports
+from src.storage.db import get_connection, insert_report
 
 
 def test_get_connection_returns_connection():

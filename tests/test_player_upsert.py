@@ -1,7 +1,5 @@
 """Tests for scouting player upsert."""
 
-import pytest
-
 from src.storage.db import get_connection, upsert_scouting_player, get_scouting_player
 
 
