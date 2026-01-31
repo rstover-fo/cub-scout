@@ -2,6 +2,7 @@
 
 import os
 from contextlib import contextmanager
+from datetime import date
 from typing import Iterator
 
 import psycopg2
@@ -208,3 +209,64 @@ def link_report_to_player(
         (player_id, report_id, player_id),
     )
     conn.commit()
+
+
+def insert_timeline_snapshot(
+    conn: connection,
+    player_id: int,
+    snapshot_date: date,
+    status: str | None = None,
+    sentiment_score: float | None = None,
+    grade_at_time: int | None = None,
+    traits_at_time: dict | None = None,
+    key_narratives: list[str] | None = None,
+    sources_count: int | None = None,
+) -> int:
+    """Insert a player timeline snapshot."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.player_timeline
+            (player_id, snapshot_date, status, sentiment_score,
+             grade_at_time, traits_at_time, key_narratives, sources_count)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            player_id,
+            snapshot_date,
+            status,
+            sentiment_score,
+            grade_at_time,
+            json.dumps(traits_at_time) if traits_at_time else None,
+            key_narratives or [],
+            sources_count or 0,
+        ),
+    )
+    snapshot_id = cur.fetchone()[0]
+    conn.commit()
+    return snapshot_id
+
+
+def get_player_timeline(
+    conn: connection,
+    player_id: int,
+    limit: int = 30,
+) -> list[dict]:
+    """Get timeline snapshots for a player, newest first."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, player_id, snapshot_date, status, sentiment_score,
+               grade_at_time, traits_at_time, key_narratives, sources_count
+        FROM scouting.player_timeline
+        WHERE player_id = %s
+        ORDER BY snapshot_date DESC
+        LIMIT %s
+        """,
+        (player_id, limit),
+    )
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
