@@ -106,3 +106,105 @@ def mark_report_processed(
         (summary, sentiment_score, player_ids, team_ids, report_id),
     )
     conn.commit()
+
+
+def upsert_scouting_player(
+    conn: connection,
+    name: str,
+    team: str,
+    position: str | None = None,
+    class_year: int | None = None,
+    current_status: str = "active",
+    roster_player_id: int | None = None,
+    recruit_id: int | None = None,
+    composite_grade: int | None = None,
+    traits: dict | None = None,
+    draft_projection: str | None = None,
+    comps: list[str] | None = None,
+) -> int:
+    """Upsert a scouting player profile.
+
+    Uses (name, team, class_year) as the unique key.
+    """
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.players
+            (name, team, position, class_year, current_status,
+             roster_player_id, recruit_id, composite_grade, traits,
+             draft_projection, comps, last_updated)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (name, team, class_year) DO UPDATE SET
+            position = COALESCE(EXCLUDED.position, scouting.players.position),
+            current_status = EXCLUDED.current_status,
+            roster_player_id = COALESCE(EXCLUDED.roster_player_id, scouting.players.roster_player_id),
+            recruit_id = COALESCE(EXCLUDED.recruit_id, scouting.players.recruit_id),
+            composite_grade = COALESCE(EXCLUDED.composite_grade, scouting.players.composite_grade),
+            traits = COALESCE(EXCLUDED.traits, scouting.players.traits),
+            draft_projection = COALESCE(EXCLUDED.draft_projection, scouting.players.draft_projection),
+            comps = COALESCE(EXCLUDED.comps, scouting.players.comps),
+            last_updated = NOW()
+        RETURNING id
+        """,
+        (
+            name,
+            team,
+            position,
+            class_year,
+            current_status,
+            roster_player_id,
+            recruit_id,
+            composite_grade,
+            json.dumps(traits) if traits else None,
+            draft_projection,
+            comps or [],
+        ),
+    )
+    player_id = cur.fetchone()[0]
+    conn.commit()
+    return player_id
+
+
+def get_scouting_player(conn: connection, player_id: int) -> dict | None:
+    """Get a scouting player by ID."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, name, team, position, class_year, current_status,
+               roster_player_id, recruit_id, composite_grade, traits,
+               draft_projection, comps, last_updated
+        FROM scouting.players
+        WHERE id = %s
+        """,
+        (player_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    columns = [desc[0] for desc in cur.description]
+    return dict(zip(columns, row))
+
+
+def link_report_to_player(
+    conn: connection,
+    report_id: int,
+    player_id: int,
+) -> None:
+    """Link a report to a scouting player by adding to player_ids array."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE scouting.reports
+        SET player_ids = array_append(
+            COALESCE(player_ids, '{}'),
+            %s
+        )
+        WHERE id = %s
+        AND NOT (%s = ANY(COALESCE(player_ids, '{}')))
+        """,
+        (player_id, report_id, player_id),
+    )
+    conn.commit()
