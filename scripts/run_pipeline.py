@@ -12,6 +12,7 @@ load_dotenv()
 
 from src.crawlers.recruiting.two47 import Two47Crawler
 from src.processing.entity_linking import run_entity_linking
+from src.processing.grading import run_grading_pipeline
 from src.processing.pipeline import process_reports
 from src.storage.db import get_connection, insert_report
 
@@ -118,10 +119,15 @@ def main():
         default=[2025],
         help="Years to crawl (default: 2025)",
     )
+    parser.add_argument(
+        "--grade",
+        action="store_true",
+        help="Run grading pipeline to update player grades",
+    )
 
     args = parser.parse_args()
 
-    if not any([args.seed, args.process, args.all, args.crawl_247, args.link]):
+    if not any([args.seed, args.process, args.all, args.crawl_247, args.link, args.grade]):
         parser.print_help()
         sys.exit(1)
 
@@ -144,6 +150,11 @@ def main():
         logger.info("Running entity linking...")
         result = run_entity_linking(batch_size=args.batch_size)
         logger.info(f"Entity linking complete: {result['players_linked']} players linked")
+
+    if args.grade or args.all:
+        logger.info("Running grading pipeline...")
+        result = run_grading_pipeline(batch_size=args.batch_size)
+        logger.info(f"Grading complete: {result['players_updated']} players updated")
 
 
 if __name__ == "__main__":
