@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.crawlers.recruiting.two47 import Two47Crawler
+from src.processing.entity_linking import run_entity_linking
 from src.processing.pipeline import process_reports
 from src.storage.db import get_connection, insert_report
 
@@ -93,10 +95,33 @@ def main():
         default=50,
         help="Number of reports to process per batch",
     )
+    parser.add_argument(
+        "--crawl-247",
+        action="store_true",
+        help="Crawl 247Sports for recruiting data",
+    )
+    parser.add_argument(
+        "--link",
+        action="store_true",
+        help="Run entity linking on processed reports",
+    )
+    parser.add_argument(
+        "--teams",
+        nargs="+",
+        default=["texas"],
+        help="Teams to crawl (default: texas)",
+    )
+    parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        default=[2025],
+        help="Years to crawl (default: 2025)",
+    )
 
     args = parser.parse_args()
 
-    if not any([args.seed, args.process, args.all]):
+    if not any([args.seed, args.process, args.all, args.crawl_247, args.link]):
         parser.print_help()
         sys.exit(1)
 
@@ -104,10 +129,21 @@ def main():
         logger.info("Seeding test data...")
         seed_test_data()
 
+    if args.crawl_247 or args.all:
+        logger.info("Crawling 247Sports...")
+        crawler = Two47Crawler(teams=args.teams, years=args.years)
+        result = crawler.crawl()
+        logger.info(f"247 crawl complete: {result.records_new} new records")
+
     if args.process or args.all:
         logger.info("Processing reports...")
         result = process_reports(batch_size=args.batch_size)
         logger.info(f"Processing complete: {result['processed']}/{result['total']} reports")
+
+    if args.link or args.all:
+        logger.info("Running entity linking...")
+        result = run_entity_linking(batch_size=args.batch_size)
+        logger.info(f"Entity linking complete: {result['players_linked']} players linked")
 
 
 if __name__ == "__main__":
