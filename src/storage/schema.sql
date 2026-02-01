@@ -111,3 +111,17 @@ CREATE TABLE IF NOT EXISTS scouting.pff_grades (
 
 CREATE INDEX idx_pff_grades_player ON scouting.pff_grades (player_id);
 CREATE INDEX idx_pff_grades_season ON scouting.pff_grades (season, week);
+
+-- User watch lists
+CREATE TABLE IF NOT EXISTS scouting.watch_lists (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    user_id TEXT NOT NULL,  -- External user identifier
+    description TEXT,
+    player_ids INT[] DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, name)
+);
+
+CREATE INDEX idx_watch_lists_user ON scouting.watch_lists (user_id);

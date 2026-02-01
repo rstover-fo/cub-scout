@@ -338,3 +338,116 @@ def get_player_pff_grades(
     cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
     return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def create_watch_list(
+    conn: connection,
+    user_id: str,
+    name: str,
+    description: str | None = None,
+) -> int:
+    """Create a new watch list."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.watch_lists (user_id, name, description)
+        VALUES (%s, %s, %s)
+        RETURNING id
+        """,
+        (user_id, name, description),
+    )
+    list_id = cur.fetchone()[0]
+    conn.commit()
+    return list_id
+
+
+def get_watch_lists(
+    conn: connection,
+    user_id: str,
+) -> list[dict]:
+    """Get all watch lists for a user."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, name, description, player_ids, created_at, updated_at
+        FROM scouting.watch_lists
+        WHERE user_id = %s
+        ORDER BY updated_at DESC
+        """,
+        (user_id,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def get_watch_list(
+    conn: connection,
+    list_id: int,
+) -> dict | None:
+    """Get a specific watch list."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, user_id, name, description, player_ids, created_at, updated_at
+        FROM scouting.watch_lists
+        WHERE id = %s
+        """,
+        (list_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    columns = [desc[0] for desc in cur.description]
+    return dict(zip(columns, row))
+
+
+def add_to_watch_list(
+    conn: connection,
+    list_id: int,
+    player_id: int,
+) -> None:
+    """Add a player to a watch list."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE scouting.watch_lists
+        SET player_ids = array_append(
+            COALESCE(player_ids, '{}'),
+            %s
+        ),
+        updated_at = NOW()
+        WHERE id = %s
+        AND NOT (%s = ANY(COALESCE(player_ids, '{}')))
+        """,
+        (player_id, list_id, player_id),
+    )
+    conn.commit()
+
+
+def remove_from_watch_list(
+    conn: connection,
+    list_id: int,
+    player_id: int,
+) -> None:
+    """Remove a player from a watch list."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE scouting.watch_lists
+        SET player_ids = array_remove(player_ids, %s),
+            updated_at = NOW()
+        WHERE id = %s
+        """,
+        (player_id, list_id),
+    )
+    conn.commit()
+
+
+def delete_watch_list(
+    conn: connection,
+    list_id: int,
+) -> None:
+    """Delete a watch list."""
+    cur = conn.cursor()
+    cur.execute("DELETE FROM scouting.watch_lists WHERE id = %s", (list_id,))
+    conn.commit()
