@@ -43,3 +43,37 @@ def test_list_teams():
     response = client.get("/teams")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_get_rising_trends():
+    """Test rising stocks endpoint."""
+    response = client.get("/trends/rising")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_get_falling_trends():
+    """Test falling stocks endpoint."""
+    response = client.get("/trends/falling")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_get_draft_board():
+    """Test draft board endpoint."""
+    response = client.get("/draft/board")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_get_draft_board_by_position():
+    """Test draft board by position."""
+    response = client.get("/draft/position/QB")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_watchlist_requires_user_id():
+    """Test that watchlist endpoints require user_id."""
+    response = client.get("/watchlists")
+    assert response.status_code == 422  # Validation error
