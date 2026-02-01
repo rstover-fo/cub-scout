@@ -2,9 +2,7 @@
 """Tests for player aggregation."""
 
 from src.processing.aggregation import (
-    get_player_reports,
     calculate_sentiment_average,
-    extract_traits_from_reports,
 )
 
 

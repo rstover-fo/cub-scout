@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ..storage.db import get_connection, get_scouting_player, get_player_timeline
-from ..processing.aggregation import get_player_reports
-from .models import (
+from ..storage.db import get_connection, get_scouting_player, get_player_timeline  # noqa: E402
+from ..processing.aggregation import get_player_reports  # noqa: E402
+from .models import (  # noqa: E402
     PlayerSummary,
     PlayerDetail,
     PlayerWithTimeline,
@@ -137,10 +137,7 @@ def list_teams(limit: int = Query(25, ge=1, le=100)):
                 (team_name,),
             )
             columns = [desc[0] for desc in cur.description]
-            top_players = [
-                PlayerSummary(**dict(zip(columns, p)))
-                for p in cur.fetchall()
-            ]
+            top_players = [PlayerSummary(**dict(zip(columns, p))) for p in cur.fetchall()]
 
             teams.append(
                 TeamSummary(

@@ -3,7 +3,6 @@
 
 import logging
 import os
-from decimal import Decimal
 
 import anthropic
 
@@ -37,11 +36,7 @@ def get_player_reports(player_id: int) -> list[dict]:
 
 def calculate_sentiment_average(reports: list[dict]) -> float | None:
     """Calculate average sentiment from reports."""
-    scores = [
-        float(r["sentiment_score"])
-        for r in reports
-        if r.get("sentiment_score") is not None
-    ]
+    scores = [float(r["sentiment_score"]) for r in reports if r.get("sentiment_score") is not None]
     if not scores:
         return None
     return round(sum(scores) / len(scores), 2)

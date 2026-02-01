@@ -93,9 +93,7 @@ def run_grading_pipeline(batch_size: int = 50) -> dict:
     for player in players:
         try:
             result = update_player_grade(player["id"])
-            logger.debug(
-                f"Updated {player['name']}: grade={result['composite_grade']}"
-            )
+            logger.debug(f"Updated {player['name']}: grade={result['composite_grade']}")
             updated += 1
         except Exception as e:
             logger.error(f"Error grading {player['name']}: {e}")

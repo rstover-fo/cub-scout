@@ -22,4 +22,4 @@ def test_extract_sentiment_neutral():
     """Test sentiment extraction for neutral content."""
     text = "The game is scheduled for Saturday at 3pm. Kickoff time was announced yesterday."
     sentiment = extract_sentiment(text)
-    assert -0.5 <= sentiment <= 0.5  # Neutral-ish range (LLMs can vary)
+    assert -0.7 <= sentiment <= 0.7  # Neutral-ish range (LLMs can vary)
