@@ -64,3 +64,61 @@ class TeamSummary(BaseModel):
     player_count: int
     avg_grade: float | None
     top_players: list[PlayerSummary]
+
+
+class TrendData(BaseModel):
+    """Player trend analysis."""
+
+    player_id: int
+    name: str | None = None
+    team: str | None = None
+    position: str | None = None
+    direction: str
+    slope: float
+    grade_change: float
+    data_points: int
+    period_days: int
+
+
+class ComparisonResult(BaseModel):
+    """Player comparison result."""
+
+    player1: dict
+    player2: dict
+    trait_comparison: list[dict]
+    grade_comparison: dict
+    pff_comparison: dict | None
+    advantages: dict
+
+
+class WatchList(BaseModel):
+    """Watch list."""
+
+    id: int
+    name: str
+    description: str | None
+    player_ids: list[int]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WatchListCreate(BaseModel):
+    """Watch list creation request."""
+
+    name: str
+    description: str | None = None
+
+
+class DraftPlayerResponse(BaseModel):
+    """Draft board player."""
+
+    player_id: int
+    name: str
+    position: str
+    team: str
+    class_year: int | None
+    draft_score: float
+    projection: str
+    composite_grade: int | None
+    pff_grade: float | None
+    trend_direction: str
