@@ -43,6 +43,21 @@ python scripts/run_pipeline.py --link
 
 # Run full pipeline
 python scripts/run_pipeline.py --all --teams texas --years 2025
+
+# Run grading pipeline (update player grades)
+python scripts/run_pipeline.py --grade
+```
+
+## API Server
+
+```bash
+# Start the API server (development)
+python scripts/run_api.py --reload
+
+# Start on specific host/port
+python scripts/run_api.py --host 0.0.0.0 --port 8080
+
+# API docs available at http://localhost:8000/docs
 ```
 
 ## Testing
@@ -56,6 +71,9 @@ pytest tests/ -v
 ```
 cfb-scout/
 ├── src/
+│   ├── api/            # REST API
+│   │   ├── main.py         # FastAPI application
+│   │   └── models.py       # Pydantic response models
 │   ├── crawlers/       # Data source crawlers
 │   │   ├── base.py         # BaseCrawler, CrawlResult
 │   │   └── recruiting/     # Recruiting site crawlers
@@ -65,12 +83,15 @@ cfb-scout/
 │   │   ├── pipeline.py         # Batch processing orchestration
 │   │   ├── entity_extraction.py # Player name extraction (regex + Claude)
 │   │   ├── entity_linking.py   # Connect reports to player profiles
-│   │   └── player_matching.py  # Fuzzy matching against roster/recruits
+│   │   ├── player_matching.py  # Fuzzy matching against roster/recruits
+│   │   ├── aggregation.py      # Player profile aggregation
+│   │   └── grading.py          # Grading pipeline
 │   └── storage/        # Database operations
 │       ├── db.py           # Connection & CRUD helpers
 │       └── schema.sql      # Supabase schema
 ├── scripts/            # CLI tools
-│   └── run_pipeline.py     # Main entry point
+│   ├── run_pipeline.py     # Main pipeline entry point
+│   └── run_api.py          # API server launcher
 └── tests/              # Test suite
 ```
 
@@ -100,8 +121,10 @@ All tables live in the `scouting` schema:
 - [x] Scouting player profile creation
 - [x] Report-to-player linking
 
-## Next Steps (Phase 3)
+## Phase 3 Status
 
-- Player profile aggregation and grading
-- Trend analysis over time
-- Dashboard/API for querying scouting data
+- [x] Player profile aggregation
+- [x] Composite grading system
+- [x] Timeline tracking snapshots
+- [x] FastAPI REST endpoints
+- [x] Player/team query API
