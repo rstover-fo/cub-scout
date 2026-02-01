@@ -94,3 +94,20 @@ CREATE TABLE IF NOT EXISTS scouting.crawl_jobs (
 );
 
 CREATE INDEX idx_crawl_jobs_source ON scouting.crawl_jobs (source_name, started_at DESC);
+
+-- PFF grade snapshots
+CREATE TABLE IF NOT EXISTS scouting.pff_grades (
+    id SERIAL PRIMARY KEY,
+    player_id INT REFERENCES scouting.players(id) ON DELETE CASCADE,
+    pff_player_id TEXT NOT NULL,
+    season INT NOT NULL,
+    week INT,  -- NULL for season-long grades
+    overall_grade NUMERIC(4,1) NOT NULL,
+    position_grades JSONB DEFAULT '{}',
+    snaps INT DEFAULT 0,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (player_id, season, week)
+);
+
+CREATE INDEX idx_pff_grades_player ON scouting.pff_grades (player_id);
+CREATE INDEX idx_pff_grades_season ON scouting.pff_grades (season, week);

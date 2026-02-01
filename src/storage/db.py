@@ -270,3 +270,71 @@ def get_player_timeline(
     )
     columns = [desc[0] for desc in cur.description]
     return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def upsert_pff_grade(
+    conn: connection,
+    player_id: int,
+    pff_player_id: str,
+    season: int,
+    overall_grade: float,
+    position_grades: dict | None = None,
+    snaps: int = 0,
+    week: int | None = None,
+) -> int:
+    """Upsert a PFF grade for a player."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.pff_grades
+            (player_id, pff_player_id, season, week, overall_grade, position_grades, snaps)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (player_id, season, week) DO UPDATE SET
+            overall_grade = EXCLUDED.overall_grade,
+            position_grades = EXCLUDED.position_grades,
+            snaps = EXCLUDED.snaps,
+            fetched_at = NOW()
+        RETURNING id
+        """,
+        (
+            player_id,
+            pff_player_id,
+            season,
+            week,
+            overall_grade,
+            json.dumps(position_grades) if position_grades else None,
+            snaps,
+        ),
+    )
+    grade_id = cur.fetchone()[0]
+    conn.commit()
+    return grade_id
+
+
+def get_player_pff_grades(
+    conn: connection,
+    player_id: int,
+    season: int | None = None,
+) -> list[dict]:
+    """Get PFF grades for a player."""
+    cur = conn.cursor()
+
+    query = """
+        SELECT id, player_id, pff_player_id, season, week,
+               overall_grade, position_grades, snaps, fetched_at
+        FROM scouting.pff_grades
+        WHERE player_id = %s
+    """
+    params = [player_id]
+
+    if season:
+        query += " AND season = %s"
+        params.append(season)
+
+    query += " ORDER BY season DESC, week DESC NULLS FIRST"
+
+    cur.execute(query, params)
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
