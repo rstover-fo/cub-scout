@@ -1,7 +1,6 @@
 """Tests for PFF API client."""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 from src.clients.pff import PFFClient, PFFPlayerGrade
 

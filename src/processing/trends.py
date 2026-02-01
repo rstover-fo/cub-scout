@@ -72,9 +72,7 @@ def calculate_trend(
 
     # Calculate slope using least squares
     n = len(grades)
-    slope = (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (
-        n * np.sum(x**2) - np.sum(x) ** 2
-    )
+    slope = (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (n * np.sum(x**2) - np.sum(x) ** 2)
 
     if slope > threshold:
         return TrendDirection.RISING
@@ -115,8 +113,7 @@ def analyze_player_trend(
         # Filter to specified period
         cutoff = date.today() - timedelta(days=days)
         recent = [
-            t for t in timeline
-            if t["snapshot_date"] >= cutoff and t["grade_at_time"] is not None
+            t for t in timeline if t["snapshot_date"] >= cutoff and t["grade_at_time"] is not None
         ]
 
         if len(recent) < 3:
@@ -139,9 +136,7 @@ def analyze_player_trend(
         x = np.arange(len(grades))
         y = np.array(grades)
         n = len(grades)
-        slope = (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (
-            n * np.sum(x**2) - np.sum(x) ** 2
-        )
+        slope = (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (n * np.sum(x**2) - np.sum(x) ** 2)
 
         grade_change = grades[-1] - grades[0]
 
@@ -191,13 +186,15 @@ def get_rising_stocks(
         for player_id, name, team, position in players:
             trend = analyze_player_trend(player_id, days)
             if trend.direction == TrendDirection.RISING:
-                trends.append({
-                    "player_id": player_id,
-                    "name": name,
-                    "team": team,
-                    "position": position,
-                    **trend.to_dict(),
-                })
+                trends.append(
+                    {
+                        "player_id": player_id,
+                        "name": name,
+                        "team": team,
+                        "position": position,
+                        **trend.to_dict(),
+                    }
+                )
 
         # Sort by slope descending
         trends.sort(key=lambda x: x["slope"], reverse=True)
@@ -240,13 +237,15 @@ def get_falling_stocks(
         for player_id, name, team, position in players:
             trend = analyze_player_trend(player_id, days)
             if trend.direction == TrendDirection.FALLING:
-                trends.append({
-                    "player_id": player_id,
-                    "name": name,
-                    "team": team,
-                    "position": position,
-                    **trend.to_dict(),
-                })
+                trends.append(
+                    {
+                        "player_id": player_id,
+                        "name": name,
+                        "team": team,
+                        "position": position,
+                        **trend.to_dict(),
+                    }
+                )
 
         # Sort by slope ascending (most negative first)
         trends.sort(key=lambda x: x["slope"])

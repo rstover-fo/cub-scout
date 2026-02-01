@@ -1,8 +1,6 @@
 """Tests for player comparison engine."""
 
 from src.processing.comparison import (
-    compare_players,
-    PlayerComparison,
     build_radar_data,
 )
 

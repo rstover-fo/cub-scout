@@ -52,10 +52,12 @@ def build_radar_data(
     result = []
     for trait, value in traits.items():
         normalized = (value / max_value) * 10 if max_value != 10 else value
-        result.append({
-            "trait": trait,
-            "value": round(normalized, 1),
-        })
+        result.append(
+            {
+                "trait": trait,
+                "value": round(normalized, 1),
+            }
+        )
 
     return result
 
@@ -93,12 +95,14 @@ def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
 
             if v1 is not None or v2 is not None:
                 diff = (v1 or 0) - (v2 or 0)
-                trait_comparison.append({
-                    "trait": trait,
-                    "player1_value": v1,
-                    "player2_value": v2,
-                    "difference": diff,
-                })
+                trait_comparison.append(
+                    {
+                        "trait": trait,
+                        "player1_value": v1,
+                        "player2_value": v2,
+                        "difference": diff,
+                    }
+                )
 
                 if diff > 0.5:
                     p1_advantages.append(trait)
@@ -109,9 +113,7 @@ def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
         grade_comparison = {
             "player1_grade": p1.get("composite_grade"),
             "player2_grade": p2.get("composite_grade"),
-            "difference": (
-                (p1.get("composite_grade") or 0) - (p2.get("composite_grade") or 0)
-            ),
+            "difference": ((p1.get("composite_grade") or 0) - (p2.get("composite_grade") or 0)),
         }
 
         # PFF comparison
@@ -174,9 +176,7 @@ def find_similar_players(
             return []
 
         player_traits = player["traits"]
-        player_vector = np.array([
-            player_traits.get(t, 0) for t in TRAIT_CATEGORIES
-        ])
+        player_vector = np.array([player_traits.get(t, 0) for t in TRAIT_CATEGORIES])
 
         if np.linalg.norm(player_vector) == 0:
             return []
@@ -199,9 +199,7 @@ def find_similar_players(
             if not other_traits:
                 continue
 
-            other_vector = np.array([
-                other_traits.get(t, 0) for t in TRAIT_CATEGORIES
-            ])
+            other_vector = np.array([other_traits.get(t, 0) for t in TRAIT_CATEGORIES])
 
             if np.linalg.norm(other_vector) == 0:
                 continue
@@ -211,13 +209,15 @@ def find_similar_players(
                 np.linalg.norm(player_vector) * np.linalg.norm(other_vector)
             )
 
-            similarities.append({
-                "player_id": other_id,
-                "name": name,
-                "team": team,
-                "position": position,
-                "similarity": round(float(similarity), 3),
-            })
+            similarities.append(
+                {
+                    "player_id": other_id,
+                    "name": name,
+                    "team": team,
+                    "position": position,
+                    "similarity": round(float(similarity), 3),
+                }
+            )
 
         similarities.sort(key=lambda x: x["similarity"], reverse=True)
         return similarities[:limit]

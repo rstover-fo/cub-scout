@@ -4,8 +4,6 @@ from src.storage.db import (
     get_connection,
     create_watch_list,
     get_watch_lists,
-    add_to_watch_list,
-    remove_from_watch_list,
 )
 
 

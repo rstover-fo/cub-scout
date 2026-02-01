@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..storage.db import get_connection, get_player_pff_grades
-from .trends import analyze_player_trend, TrendDirection
+from .trends import analyze_player_trend
 
 logger = logging.getLogger(__name__)
 
@@ -146,18 +146,20 @@ def build_draft_board(
 
             projection = get_projection(draft_score)
 
-            players.append(DraftPlayer(
-                player_id=player_id,
-                name=name,
-                position=pos or "Unknown",
-                team=team or "Unknown",
-                class_year=year,
-                draft_score=round(draft_score, 1),
-                projection=projection,
-                composite_grade=grade,
-                pff_grade=round(pff_grade, 1) if pff_grade else None,
-                trend_direction=trend.direction.value,
-            ))
+            players.append(
+                DraftPlayer(
+                    player_id=player_id,
+                    name=name,
+                    position=pos or "Unknown",
+                    team=team or "Unknown",
+                    class_year=year,
+                    draft_score=round(draft_score, 1),
+                    projection=projection,
+                    composite_grade=grade,
+                    pff_grade=round(pff_grade, 1) if pff_grade else None,
+                    trend_direction=trend.direction.value,
+                )
+            )
 
         # Sort by draft score
         players.sort(key=lambda x: x.draft_score, reverse=True)
@@ -206,18 +208,20 @@ def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
                 trend_slope=trend.slope,
             )
 
-            players.append(DraftPlayer(
-                player_id=player_id,
-                name=name,
-                position=pos or "Unknown",
-                team=team_name or "Unknown",
-                class_year=year,
-                draft_score=round(draft_score, 1),
-                projection=get_projection(draft_score),
-                composite_grade=grade,
-                pff_grade=round(pff_grade, 1) if pff_grade else None,
-                trend_direction=trend.direction.value,
-            ))
+            players.append(
+                DraftPlayer(
+                    player_id=player_id,
+                    name=name,
+                    position=pos or "Unknown",
+                    team=team_name or "Unknown",
+                    class_year=year,
+                    draft_score=round(draft_score, 1),
+                    projection=get_projection(draft_score),
+                    composite_grade=grade,
+                    pff_grade=round(pff_grade, 1) if pff_grade else None,
+                    trend_direction=trend.direction.value,
+                )
+            )
 
         players.sort(key=lambda x: x.draft_score, reverse=True)
         return players

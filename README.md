@@ -128,3 +128,41 @@ All tables live in the `scouting` schema:
 - [x] Timeline tracking snapshots
 - [x] FastAPI REST endpoints
 - [x] Player/team query API
+
+## Phase 4 Status
+
+- [x] PFF API integration
+- [x] Trend analysis (rising/falling stocks)
+- [x] Player comparison engine
+- [x] Watch lists
+- [x] Draft board with projections
+
+## API Endpoints
+
+### Players
+- `GET /players` - List players with filters
+- `GET /players/{id}` - Player detail with timeline
+- `GET /players/{id}/trend` - Player trend analysis
+- `GET /players/{id}/similar` - Find similar players
+
+### Teams
+- `GET /teams` - Team summaries
+- `GET /teams/{name}/players` - Team roster
+
+### Trends
+- `GET /trends/rising` - Players with rising grades
+- `GET /trends/falling` - Players with falling grades
+
+### Comparisons
+- `GET /compare/{id1}/{id2}` - Head-to-head comparison
+
+### Watch Lists
+- `GET /watchlists?user_id=X` - User's watch lists
+- `POST /watchlists?user_id=X` - Create watch list
+- `POST /watchlists/{id}/players/{player_id}` - Add to list
+- `DELETE /watchlists/{id}/players/{player_id}` - Remove from list
+- `DELETE /watchlists/{id}` - Delete list
+
+### Draft Board
+- `GET /draft/board` - Full draft rankings
+- `GET /draft/position/{pos}` - Position rankings
