@@ -145,6 +145,15 @@ All tables live in the `scouting` schema:
 - [x] Destination predictions
 - [x] Team portal impact analysis
 
+## Phase 6A Status (Foundation)
+
+- [x] pgvector extension enabled
+- [x] player_embeddings table with HNSW index
+- [x] pending_links table for review queue
+- [x] Embedding generation module (OpenAI)
+- [x] Database functions for embeddings
+- [ ] Backfill embeddings for current roster (~30K players)
+
 ## API Endpoints
 
 ### Players
