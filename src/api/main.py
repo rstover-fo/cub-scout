@@ -16,6 +16,13 @@ from ..storage.db import (  # noqa: E402
     add_to_watch_list,
     remove_from_watch_list,
     delete_watch_list,
+    create_alert,
+    get_user_alerts,
+    get_alert,
+    deactivate_alert,
+    delete_alert,
+    get_unread_alerts,
+    mark_alert_read,
 )
 from ..processing.aggregation import get_player_reports  # noqa: E402
 from ..processing.trends import get_rising_stocks, get_falling_stocks, analyze_player_trend  # noqa: E402
@@ -32,6 +39,9 @@ from .models import (  # noqa: E402
     WatchList,
     WatchListCreate,
     DraftPlayerResponse,
+    AlertCreate,
+    Alert,
+    AlertHistoryEntry,
 )
 
 app = FastAPI(
@@ -338,3 +348,82 @@ def get_position_draft_rankings(
         )
         for p in players
     ]
+
+
+# Alert endpoints
+@app.get("/alerts", response_model=list[Alert])
+def list_alerts(user_id: str = Query(...), active_only: bool = Query(True)):
+    """Get user's alerts."""
+    conn = get_connection()
+    try:
+        alerts = get_user_alerts(conn, user_id, active_only=active_only)
+        return [Alert(**a) for a in alerts]
+    finally:
+        conn.close()
+
+
+@app.post("/alerts", response_model=Alert)
+def create_alert_endpoint(user_id: str = Query(...), data: AlertCreate = ...):
+    """Create a new alert."""
+    conn = get_connection()
+    try:
+        alert_id = create_alert(
+            conn,
+            user_id=user_id,
+            name=data.name,
+            alert_type=data.alert_type,
+            player_id=data.player_id,
+            team=data.team,
+            threshold=data.threshold,
+        )
+        alert = get_alert(conn, alert_id)
+        return Alert(**alert)
+    finally:
+        conn.close()
+
+
+@app.delete("/alerts/{alert_id}")
+def delete_alert_endpoint(alert_id: int):
+    """Delete an alert."""
+    conn = get_connection()
+    try:
+        delete_alert(conn, alert_id)
+        return {"status": "deleted"}
+    finally:
+        conn.close()
+
+
+@app.post("/alerts/{alert_id}/deactivate")
+def deactivate_alert_endpoint(alert_id: int):
+    """Deactivate an alert without deleting."""
+    conn = get_connection()
+    try:
+        deactivate_alert(conn, alert_id)
+        return {"status": "deactivated"}
+    finally:
+        conn.close()
+
+
+@app.get("/alerts/history", response_model=list[AlertHistoryEntry])
+def get_alert_history(user_id: str = Query(...), unread_only: bool = Query(True)):
+    """Get fired alerts for a user."""
+    conn = get_connection()
+    try:
+        if unread_only:
+            history = get_unread_alerts(conn, user_id)
+        else:
+            history = get_unread_alerts(conn, user_id)  # For now, just unread
+        return [AlertHistoryEntry(**h) for h in history]
+    finally:
+        conn.close()
+
+
+@app.post("/alerts/history/{history_id}/read")
+def mark_alert_read_endpoint(history_id: int):
+    """Mark an alert as read."""
+    conn = get_connection()
+    try:
+        mark_alert_read(conn, history_id)
+        return {"status": "read"}
+    finally:
+        conn.close()

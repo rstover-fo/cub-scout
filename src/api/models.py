@@ -122,3 +122,41 @@ class DraftPlayerResponse(BaseModel):
     composite_grade: int | None
     pff_grade: float | None
     trend_direction: str
+
+
+class AlertCreate(BaseModel):
+    """Alert creation request."""
+
+    name: str
+    alert_type: str  # grade_change, new_report, status_change, trend_change, portal_entry
+    player_id: int | None = None
+    team: str | None = None
+    threshold: dict | None = None
+
+
+class Alert(BaseModel):
+    """Alert rule."""
+
+    id: int
+    user_id: str
+    name: str
+    alert_type: str
+    player_id: int | None
+    team: str | None
+    threshold: dict | None
+    is_active: bool
+    created_at: datetime
+    last_checked_at: datetime | None
+
+
+class AlertHistoryEntry(BaseModel):
+    """Fired alert record."""
+
+    id: int
+    alert_id: int
+    alert_name: str
+    alert_type: str
+    fired_at: datetime
+    trigger_data: dict
+    message: str
+    is_read: bool
