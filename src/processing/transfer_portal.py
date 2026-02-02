@@ -134,13 +134,29 @@ def predict_destination(
             # Return generic predictions based on grade tier
             if composite_grade and composite_grade >= 80:
                 return [
-                    {"team": "Alabama", "probability": 0.15, "reasoning": "Elite program, high-grade target"},
-                    {"team": "Georgia", "probability": 0.15, "reasoning": "Elite program, high-grade target"},
-                    {"team": "Ohio State", "probability": 0.12, "reasoning": "Elite program, high-grade target"},
+                    {
+                        "team": "Alabama",
+                        "probability": 0.15,
+                        "reasoning": "Elite program, high-grade target",
+                    },
+                    {
+                        "team": "Georgia",
+                        "probability": 0.15,
+                        "reasoning": "Elite program, high-grade target",
+                    },
+                    {
+                        "team": "Ohio State",
+                        "probability": 0.12,
+                        "reasoning": "Elite program, high-grade target",
+                    },
                 ]
             else:
                 return [
-                    {"team": "Unknown", "probability": 0.5, "reasoning": "Insufficient historical data"},
+                    {
+                        "team": "Unknown",
+                        "probability": 0.5,
+                        "reasoning": "Insufficient historical data",
+                    },
                 ]
 
         total_count = sum(row[1] for row in historical)
@@ -148,11 +164,13 @@ def predict_destination(
 
         for team, count in historical[:5]:
             prob = round(count / total_count, 2)
-            predictions.append({
-                "team": team,
-                "probability": prob,
-                "reasoning": f"Historical {position} destination ({count} transfers)",
-            })
+            predictions.append(
+                {
+                    "team": team,
+                    "probability": prob,
+                    "reasoning": f"Historical {position} destination ({count} transfers)",
+                }
+            )
 
         return predictions
 

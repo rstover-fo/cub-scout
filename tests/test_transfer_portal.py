@@ -5,7 +5,6 @@ from datetime import date
 from src.storage.db import (
     get_connection,
     insert_transfer_event,
-    get_player_transfer_history,
     get_active_portal_players,
 )
 

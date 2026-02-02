@@ -229,14 +229,16 @@ def process_alerts_for_player(player_id: int) -> list[dict]:
                     result.trigger_data or {},
                     result.message or "",
                 )
-                fired.append({
-                    "alert_id": alert_id,
-                    "history_id": history_id,
-                    "alert_name": name,
-                    "message": result.message,
-                    "player_id": player_id,
-                    "player_name": player.get("name"),
-                })
+                fired.append(
+                    {
+                        "alert_id": alert_id,
+                        "history_id": history_id,
+                        "alert_name": name,
+                        "message": result.message,
+                        "player_id": player_id,
+                        "player_name": player.get("name"),
+                    }
+                )
 
             update_alert_checked(conn, alert_id)
 

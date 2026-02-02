@@ -2,7 +2,6 @@
 
 from src.processing.alerting import (
     check_grade_change_alert,
-    AlertCheckResult,
 )
 
 

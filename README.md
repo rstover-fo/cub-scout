@@ -137,6 +137,14 @@ All tables live in the `scouting` schema:
 - [x] Watch lists
 - [x] Draft board with projections
 
+## Phase 5 Status
+
+- [x] Alert system (grade/status/report changes)
+- [x] Alert history and notifications
+- [x] Transfer portal tracking
+- [x] Destination predictions
+- [x] Team portal impact analysis
+
 ## API Endpoints
 
 ### Players
@@ -166,3 +174,19 @@ All tables live in the `scouting` schema:
 ### Draft Board
 - `GET /draft/board` - Full draft rankings
 - `GET /draft/position/{pos}` - Position rankings
+
+### Alerts
+- `GET /alerts?user_id=X` - User's active alerts
+- `POST /alerts?user_id=X` - Create alert rule
+- `DELETE /alerts/{id}` - Delete alert
+- `POST /alerts/{id}/deactivate` - Deactivate alert
+- `GET /alerts/history?user_id=X` - Fired alerts
+- `POST /alerts/history/{id}/read` - Mark as read
+
+### Transfer Portal
+- `GET /transfer-portal/active` - Current portal players
+- `GET /transfer-portal/player/{id}` - Player transfer history
+- `GET /transfer-portal/player/{id}/predict` - Destination predictions
+- `GET /teams/{name}/transfers` - Team transfer activity
+- `GET /teams/{name}/portal-impact` - Portal impact analysis
+- `POST /transfer-portal/snapshot` - Generate daily snapshot

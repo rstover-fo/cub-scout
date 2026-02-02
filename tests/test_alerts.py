@@ -4,8 +4,6 @@ from src.storage.db import (
     get_connection,
     create_alert,
     get_user_alerts,
-    fire_alert,
-    get_unread_alerts,
 )
 
 
