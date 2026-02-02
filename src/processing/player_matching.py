@@ -6,7 +6,7 @@ from typing import Literal
 
 from rapidfuzz import fuzz
 
-from ..storage.db import find_similar_by_embedding, get_connection
+from ..storage.db import find_similar_by_embedding, get_connection, insert_pending_link
 from .embeddings import build_identity_text, generate_embedding
 
 logger = logging.getLogger(__name__)
@@ -400,3 +400,86 @@ def find_best_match(
             return recruit_match
 
     return match
+
+
+def match_player_with_review(
+    name: str,
+    team: str | None = None,
+    position: str | None = None,
+    year: int = 2025,
+    source_context: dict | None = None,
+    athlete_id: str | None = None,
+) -> tuple[PlayerMatch | None, int | None]:
+    """Match player with automatic review queue for low-confidence matches.
+
+    Three-tier matching:
+    1. Deterministic: athlete_id link or exact name+team+year (100%)
+    2. Vector: pgvector similarity >= 0.92 with team match
+    3. Fuzzy: rapidfuzz token_sort_ratio >= 80
+
+    Matches with 0.80-0.92 confidence go to pending_links for review.
+
+    Args:
+        name: Player name to match
+        team: Optional team filter
+        position: Optional position
+        year: Roster year
+        source_context: Additional context for review queue
+        athlete_id: Optional recruit athlete_id for deterministic match
+
+    Returns:
+        Tuple of (PlayerMatch or None, pending_link_id or None)
+    """
+    # Tier 1: Deterministic
+    if athlete_id:
+        match = find_deterministic_match_by_athlete_id(athlete_id)
+        if match:
+            return (match, None)
+
+    if team:
+        match = find_deterministic_match(name, team, year)
+        if match:
+            return (match, None)
+
+    # Tier 2: Vector similarity
+    vector_match = find_vector_match(name, team=team, position=position, year=year)
+    if vector_match:
+        return (vector_match, None)
+
+    # Tier 3: Fuzzy matching (existing logic)
+    fuzzy_match = find_roster_match(name, team=team, position=position, year=year)
+
+    # Check if we need to create a pending link
+    if fuzzy_match:
+        confidence_normalized = fuzzy_match.confidence / 100.0
+
+        # High confidence fuzzy match - return it
+        if confidence_normalized >= VECTOR_MATCH_HIGH_CONFIDENCE:
+            fuzzy_match.match_method = "fuzzy"
+            return (fuzzy_match, None)
+
+        # Medium confidence - create pending link for review
+        if confidence_normalized >= VECTOR_MATCH_LOW_CONFIDENCE:
+            conn = get_connection()
+            try:
+                pending_id = insert_pending_link(
+                    conn,
+                    source_name=name,
+                    source_team=team,
+                    source_context=source_context,
+                    candidate_roster_id=fuzzy_match.source_id,
+                    match_score=confidence_normalized,
+                    match_method="fuzzy",
+                )
+                return (None, pending_id)
+            finally:
+                conn.close()
+
+    # Try recruits as fallback
+    recruit_match = find_recruit_match(name, team=team, position=position, year=year)
+    if recruit_match and recruit_match.confidence >= MATCH_THRESHOLD:
+        recruit_match.match_method = "fuzzy"
+        return (recruit_match, None)
+
+    # No match found
+    return (None, None)
