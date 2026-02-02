@@ -46,12 +46,14 @@ def test_build_identity_text_missing_fields():
     assert result == "John Smith | Alabama | 2024"
 
 
-@patch("src.processing.embeddings.openai_client")
-def test_generate_embedding_returns_result(mock_client):
+@patch("src.processing.embeddings._get_client")
+def test_generate_embedding_returns_result(mock_get_client):
     """Test generating embedding returns EmbeddingResult."""
+    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
     mock_client.embeddings.create.return_value = mock_response
+    mock_get_client.return_value = mock_client
 
     result = generate_embedding("Arch Manning | QB | Texas | 2024")
 
@@ -60,12 +62,14 @@ def test_generate_embedding_returns_result(mock_client):
     assert result.identity_text == "Arch Manning | QB | Texas | 2024"
 
 
-@patch("src.processing.embeddings.openai_client")
-def test_generate_embedding_calls_openai(mock_client):
+@patch("src.processing.embeddings._get_client")
+def test_generate_embedding_calls_openai(mock_get_client):
     """Test that generate_embedding calls OpenAI with correct params."""
+    mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
     mock_client.embeddings.create.return_value = mock_response
+    mock_get_client.return_value = mock_client
 
     generate_embedding("test text")
 
