@@ -603,3 +603,185 @@ def mark_alert_read(conn: connection, history_id: int) -> None:
         (history_id,),
     )
     conn.commit()
+
+
+# Transfer portal functions
+
+
+def insert_transfer_event(
+    conn: connection,
+    player_id: int,
+    event_type: str,
+    from_team: str | None = None,
+    to_team: str | None = None,
+    event_date: date | None = None,
+    source_url: str | None = None,
+    notes: str | None = None,
+) -> int:
+    """Insert a transfer portal event."""
+    from datetime import date as date_type
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.transfer_events
+            (player_id, event_type, from_team, to_team, event_date, source_url, notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (player_id, event_type, event_date) DO UPDATE SET
+            to_team = EXCLUDED.to_team,
+            source_url = EXCLUDED.source_url,
+            notes = EXCLUDED.notes
+        RETURNING id
+        """,
+        (
+            player_id,
+            event_type,
+            from_team,
+            to_team,
+            event_date or date_type.today(),
+            source_url,
+            notes,
+        ),
+    )
+    event_id = cur.fetchone()[0]
+    conn.commit()
+    return event_id
+
+
+def get_player_transfer_history(
+    conn: connection,
+    player_id: int,
+) -> list[dict]:
+    """Get transfer history for a player."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, player_id, event_type, from_team, to_team,
+               event_date, source_url, notes, created_at
+        FROM scouting.transfer_events
+        WHERE player_id = %s
+        ORDER BY event_date DESC
+        """,
+        (player_id,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def get_active_portal_players(
+    conn: connection,
+    position: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Get players currently in the transfer portal.
+
+    Returns players who have 'entered' but not 'committed' or 'withdrawn'.
+    """
+    cur = conn.cursor()
+
+    query = """
+        SELECT DISTINCT ON (p.id)
+            p.id, p.name, p.team, p.position, p.class_year, p.composite_grade,
+            te.event_date as portal_entry_date, te.from_team
+        FROM scouting.players p
+        JOIN scouting.transfer_events te ON p.id = te.player_id
+        WHERE te.event_type = 'entered'
+        AND NOT EXISTS (
+            SELECT 1 FROM scouting.transfer_events te2
+            WHERE te2.player_id = p.id
+            AND te2.event_type IN ('committed', 'withdrawn')
+            AND te2.event_date > te.event_date
+        )
+    """
+    params = []
+
+    if position:
+        query += " AND UPPER(p.position) = UPPER(%s)"
+        params.append(position)
+
+    query += " ORDER BY p.id, te.event_date DESC LIMIT %s"
+    params.append(limit)
+
+    cur.execute(query, params)
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def get_team_transfer_activity(
+    conn: connection,
+    team: str,
+) -> dict:
+    """Get transfer activity for a team (incoming and outgoing)."""
+    cur = conn.cursor()
+
+    # Outgoing (players who left)
+    cur.execute(
+        """
+        SELECT p.id, p.name, p.position, te.event_date, te.to_team
+        FROM scouting.transfer_events te
+        JOIN scouting.players p ON te.player_id = p.id
+        WHERE te.from_team = %s AND te.event_type = 'entered'
+        ORDER BY te.event_date DESC
+        """,
+        (team,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    outgoing = [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    # Incoming (players who committed)
+    cur.execute(
+        """
+        SELECT p.id, p.name, p.position, te.event_date, te.from_team
+        FROM scouting.transfer_events te
+        JOIN scouting.players p ON te.player_id = p.id
+        WHERE te.to_team = %s AND te.event_type = 'committed'
+        ORDER BY te.event_date DESC
+        """,
+        (team,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    incoming = [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    return {
+        "team": team,
+        "outgoing": outgoing,
+        "incoming": incoming,
+        "net": len(incoming) - len(outgoing),
+    }
+
+
+def insert_portal_snapshot(
+    conn: connection,
+    snapshot_date: date,
+    total_in_portal: int,
+    by_position: dict | None = None,
+    by_conference: dict | None = None,
+    notable_entries: list[str] | None = None,
+) -> int:
+    """Insert a daily portal snapshot."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.portal_snapshots
+            (snapshot_date, total_in_portal, by_position, by_conference, notable_entries)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (snapshot_date) DO UPDATE SET
+            total_in_portal = EXCLUDED.total_in_portal,
+            by_position = EXCLUDED.by_position,
+            by_conference = EXCLUDED.by_conference,
+            notable_entries = EXCLUDED.notable_entries
+        RETURNING id
+        """,
+        (
+            snapshot_date,
+            total_in_portal,
+            json.dumps(by_position) if by_position else None,
+            json.dumps(by_conference) if by_conference else None,
+            notable_entries or [],
+        ),
+    )
+    snapshot_id = cur.fetchone()[0]
+    conn.commit()
+    return snapshot_id
