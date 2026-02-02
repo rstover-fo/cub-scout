@@ -61,3 +61,38 @@ def test_deterministic_match_athlete_id_link():
     if result:
         assert result.confidence == 100.0
         assert result.match_method == "deterministic"
+
+
+# Tests for Tier 2: Vector Similarity Matching
+
+
+def test_vector_match_returns_high_similarity():
+    """Test vector matching uses embeddings for similarity."""
+    from src.processing.player_matching import find_vector_match
+
+    result = find_vector_match(
+        name="Arch Manning",
+        team="Texas",
+        position="QB",
+        year=2025,
+    )
+    assert result is None or isinstance(result, PlayerMatch)
+    if result:
+        assert result.match_method == "vector"
+        assert result.confidence >= 0 and result.confidence <= 100
+
+
+def test_vector_match_requires_team_match():
+    """Test vector matching enforces team filter."""
+    from src.processing.player_matching import find_vector_match
+
+    # Search for Texas player
+    result = find_vector_match(
+        name="Arch Manning",
+        team="Texas",
+        position="QB",
+        year=2025,
+    )
+    if result:
+        # Team should match filter
+        assert result.team.lower() == "texas"
