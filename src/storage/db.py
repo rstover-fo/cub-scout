@@ -451,3 +451,155 @@ def delete_watch_list(
     cur = conn.cursor()
     cur.execute("DELETE FROM scouting.watch_lists WHERE id = %s", (list_id,))
     conn.commit()
+
+
+# Alert functions
+
+
+def create_alert(
+    conn: connection,
+    user_id: str,
+    name: str,
+    alert_type: str,
+    player_id: int | None = None,
+    team: str | None = None,
+    threshold: dict | None = None,
+) -> int:
+    """Create a new alert rule."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.alerts (user_id, name, alert_type, player_id, team, threshold)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (user_id, name, alert_type, player_id, team, json.dumps(threshold) if threshold else None),
+    )
+    alert_id = cur.fetchone()[0]
+    conn.commit()
+    return alert_id
+
+
+def get_user_alerts(
+    conn: connection,
+    user_id: str,
+    active_only: bool = True,
+) -> list[dict]:
+    """Get all alerts for a user."""
+    cur = conn.cursor()
+
+    query = """
+        SELECT id, user_id, name, alert_type, player_id, team, threshold,
+               is_active, created_at, last_checked_at
+        FROM scouting.alerts
+        WHERE user_id = %s
+    """
+    params = [user_id]
+
+    if active_only:
+        query += " AND is_active = TRUE"
+
+    query += " ORDER BY created_at DESC"
+
+    cur.execute(query, params)
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def get_alert(conn: connection, alert_id: int) -> dict | None:
+    """Get a specific alert."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, user_id, name, alert_type, player_id, team, threshold,
+               is_active, created_at, last_checked_at
+        FROM scouting.alerts
+        WHERE id = %s
+        """,
+        (alert_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    columns = [desc[0] for desc in cur.description]
+    return dict(zip(columns, row))
+
+
+def update_alert_checked(conn: connection, alert_id: int) -> None:
+    """Update last_checked_at timestamp."""
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE scouting.alerts SET last_checked_at = NOW() WHERE id = %s",
+        (alert_id,),
+    )
+    conn.commit()
+
+
+def deactivate_alert(conn: connection, alert_id: int) -> None:
+    """Deactivate an alert."""
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE scouting.alerts SET is_active = FALSE WHERE id = %s",
+        (alert_id,),
+    )
+    conn.commit()
+
+
+def delete_alert(conn: connection, alert_id: int) -> None:
+    """Delete an alert and its history."""
+    cur = conn.cursor()
+    cur.execute("DELETE FROM scouting.alerts WHERE id = %s", (alert_id,))
+    conn.commit()
+
+
+def fire_alert(
+    conn: connection,
+    alert_id: int,
+    trigger_data: dict,
+    message: str,
+) -> int:
+    """Record a fired alert."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.alert_history (alert_id, trigger_data, message)
+        VALUES (%s, %s, %s)
+        RETURNING id
+        """,
+        (alert_id, json.dumps(trigger_data), message),
+    )
+    history_id = cur.fetchone()[0]
+    conn.commit()
+    return history_id
+
+
+def get_unread_alerts(conn: connection, user_id: str) -> list[dict]:
+    """Get unread alert history for a user."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT h.id, h.alert_id, h.fired_at, h.trigger_data, h.message, h.is_read,
+               a.name as alert_name, a.alert_type
+        FROM scouting.alert_history h
+        JOIN scouting.alerts a ON h.alert_id = a.id
+        WHERE a.user_id = %s AND h.is_read = FALSE
+        ORDER BY h.fired_at DESC
+        """,
+        (user_id,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def mark_alert_read(conn: connection, history_id: int) -> None:
+    """Mark an alert history entry as read."""
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE scouting.alert_history SET is_read = TRUE WHERE id = %s",
+        (history_id,),
+    )
+    conn.commit()
