@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 # Minimum score to consider a match
 MATCH_THRESHOLD = 80
 
+# Vector match thresholds
+VECTOR_MATCH_HIGH_CONFIDENCE = 0.92  # Accept automatically
+VECTOR_MATCH_LOW_CONFIDENCE = 0.80  # Send to review queue
+
 
 @dataclass
 class PlayerMatch:
@@ -26,6 +30,7 @@ class PlayerMatch:
     position: str | None
     year: int | None
     confidence: float  # 0-100
+    match_method: Literal["deterministic", "vector", "fuzzy"] = "fuzzy"
 
 
 def fuzzy_match_name(name1: str, name2: str) -> float:
@@ -39,6 +44,96 @@ def fuzzy_match_name(name1: str, name2: str) -> float:
 
     # Use token sort ratio which handles word order differences
     return fuzz.token_sort_ratio(n1, n2)
+
+
+def find_deterministic_match(
+    name: str,
+    team: str,
+    year: int = 2025,
+) -> PlayerMatch | None:
+    """Tier 1: Exact name + team + year match.
+
+    Returns 100% confidence match or None.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        # Exact match on name (first + last) + team + year
+        cur.execute(
+            """
+            SELECT id, first_name, last_name, team, position, year
+            FROM core.roster
+            WHERE LOWER(first_name || ' ' || last_name) = LOWER(%s)
+            AND LOWER(team) = LOWER(%s)
+            AND year = %s
+            LIMIT 1
+            """,
+            (name, team, year),
+        )
+        row = cur.fetchone()
+
+        if row:
+            player_id, first, last, player_team, player_pos, player_year = row
+            return PlayerMatch(
+                source="roster",
+                source_id=str(player_id),
+                first_name=first,
+                last_name=last,
+                team=player_team,
+                position=player_pos,
+                year=player_year,
+                confidence=100.0,
+                match_method="deterministic",
+            )
+
+        return None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def find_deterministic_match_by_athlete_id(
+    athlete_id: str,
+) -> PlayerMatch | None:
+    """Tier 1: Match via recruiting.recruits.athlete_id -> core.roster.id.
+
+    Returns 100% confidence match or None.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            SELECT r.id, r.first_name, r.last_name, r.team, r.position, r.year
+            FROM core.roster r
+            JOIN recruiting.recruits rec ON rec.athlete_id = r.id
+            WHERE rec.athlete_id = %s
+            LIMIT 1
+            """,
+            (athlete_id,),
+        )
+        row = cur.fetchone()
+
+        if row:
+            player_id, first, last, player_team, player_pos, player_year = row
+            return PlayerMatch(
+                source="roster",
+                source_id=str(player_id),
+                first_name=first,
+                last_name=last,
+                team=player_team,
+                position=player_pos,
+                year=player_year,
+                confidence=100.0,
+                match_method="deterministic",
+            )
+
+        return None
+    finally:
+        cur.close()
+        conn.close()
 
 
 def find_roster_match(
