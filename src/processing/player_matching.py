@@ -6,7 +6,8 @@ from typing import Literal
 
 from rapidfuzz import fuzz
 
-from ..storage.db import get_connection
+from ..storage.db import find_similar_by_embedding, get_connection
+from .embeddings import build_identity_text, generate_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,101 @@ def find_deterministic_match_by_athlete_id(
         return None
     finally:
         cur.close()
+        conn.close()
+
+
+def find_vector_match(
+    name: str,
+    team: str | None = None,
+    position: str | None = None,
+    year: int = 2025,
+) -> PlayerMatch | None:
+    """Tier 2: Vector similarity match using embeddings.
+
+    Generates embedding for query, searches pgvector for similar players.
+    Only accepts matches with similarity >= 0.92 AND team match.
+
+    Args:
+        name: Player name to match
+        team: Optional team filter (required for high confidence)
+        position: Optional position (included in embedding)
+        year: Roster year
+
+    Returns:
+        PlayerMatch if high-confidence match found, else None
+    """
+    # Build identity text for query
+    query_player = {
+        "name": name,
+        "team": team or "Unknown",
+        "year": year,
+        "position": position,
+    }
+    identity_text = build_identity_text(query_player)
+
+    # Generate embedding for query
+    try:
+        result = generate_embedding(identity_text)
+    except Exception:
+        # If embedding fails, fall through to fuzzy
+        return None
+
+    conn = get_connection()
+    try:
+        # Search for similar players
+        similar = find_similar_by_embedding(
+            conn,
+            embedding=result.embedding,
+            limit=5,
+        )
+
+        if not similar:
+            return None
+
+        # Find best match with team filter
+        for candidate in similar:
+            similarity = candidate["similarity"]
+
+            # Parse identity_text to get team: "Name | Position | Team | Year"
+            parts = candidate["identity_text"].split(" | ")
+            candidate_team = parts[2] if len(parts) >= 3 else None
+
+            # Require team match for acceptance
+            if team and candidate_team and team.lower() != candidate_team.lower():
+                continue
+
+            # Only accept high-confidence matches
+            if similarity >= VECTOR_MATCH_HIGH_CONFIDENCE:
+                # Fetch full player data from roster
+                roster_id = candidate["roster_id"]
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT id, first_name, last_name, team, position, year
+                    FROM core.roster
+                    WHERE id = %s
+                    """,
+                    (roster_id,),
+                )
+                row = cur.fetchone()
+                cur.close()
+
+                if row:
+                    player_id, first, last, player_team, player_pos, player_year = row
+                    return PlayerMatch(
+                        source="roster",
+                        source_id=str(player_id),
+                        first_name=first,
+                        last_name=last,
+                        team=player_team,
+                        position=player_pos,
+                        year=player_year,
+                        confidence=similarity * 100,
+                        match_method="vector",
+                    )
+
+        return None
+    finally:
         conn.close()
 
 
