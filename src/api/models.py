@@ -160,3 +160,60 @@ class AlertHistoryEntry(BaseModel):
     trigger_data: dict
     message: str
     is_read: bool
+
+
+class TransferEvent(BaseModel):
+    """Transfer portal event."""
+
+    id: int
+    player_id: int
+    event_type: str
+    from_team: str | None
+    to_team: str | None
+    event_date: date
+    source_url: str | None
+    notes: str | None
+    created_at: datetime
+
+
+class PortalPlayer(BaseModel):
+    """Player in the transfer portal."""
+
+    id: int
+    name: str
+    team: str | None
+    position: str | None
+    class_year: int | None
+    composite_grade: int | None
+    portal_entry_date: date
+    from_team: str | None
+
+
+class DestinationPrediction(BaseModel):
+    """Predicted transfer destination."""
+
+    team: str
+    probability: float
+    reasoning: str
+
+
+class TeamTransferActivity(BaseModel):
+    """Team transfer activity summary."""
+
+    team: str
+    outgoing: list[dict]
+    incoming: list[dict]
+    net: int
+
+
+class PortalImpact(BaseModel):
+    """Team portal impact analysis."""
+
+    team: str
+    outgoing_count: int
+    incoming_count: int
+    net_transfers: int
+    avg_grade_lost: float
+    avg_grade_gained: float
+    grade_delta: float
+    position_impact: dict

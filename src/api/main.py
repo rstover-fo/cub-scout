@@ -23,6 +23,14 @@ from ..storage.db import (  # noqa: E402
     delete_alert,
     get_unread_alerts,
     mark_alert_read,
+    get_active_portal_players,
+    get_player_transfer_history,
+    get_team_transfer_activity,
+)
+from ..processing.transfer_portal import (  # noqa: E402
+    predict_destination,
+    analyze_team_portal_impact,
+    generate_portal_snapshot,
 )
 from ..processing.aggregation import get_player_reports  # noqa: E402
 from ..processing.trends import get_rising_stocks, get_falling_stocks, analyze_player_trend  # noqa: E402
@@ -42,6 +50,11 @@ from .models import (  # noqa: E402
     AlertCreate,
     Alert,
     AlertHistoryEntry,
+    TransferEvent,
+    PortalPlayer,
+    DestinationPrediction,
+    TeamTransferActivity,
+    PortalImpact,
 )
 
 app = FastAPI(
@@ -427,3 +440,74 @@ def mark_alert_read_endpoint(history_id: int):
         return {"status": "read"}
     finally:
         conn.close()
+
+
+# Transfer Portal endpoints
+@app.get("/transfer-portal/active", response_model=list[PortalPlayer])
+def get_portal_players(
+    position: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Get players currently in the transfer portal."""
+    conn = get_connection()
+    try:
+        players = get_active_portal_players(conn, position=position, limit=limit)
+        return [PortalPlayer(**p) for p in players]
+    finally:
+        conn.close()
+
+
+@app.get("/transfer-portal/player/{player_id}", response_model=list[TransferEvent])
+def get_player_transfers(player_id: int):
+    """Get transfer history for a player."""
+    conn = get_connection()
+    try:
+        history = get_player_transfer_history(conn, player_id)
+        return [TransferEvent(**h) for h in history]
+    finally:
+        conn.close()
+
+
+@app.get("/transfer-portal/player/{player_id}/predict", response_model=list[DestinationPrediction])
+def predict_player_destination(player_id: int):
+    """Predict likely destinations for a player in the portal."""
+    conn = get_connection()
+    try:
+        player = get_scouting_player(conn, player_id)
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found")
+
+        predictions = predict_destination(
+            position=player.get("position") or "Unknown",
+            from_team=player.get("team") or "Unknown",
+            composite_grade=player.get("composite_grade"),
+            class_year=player.get("class_year"),
+        )
+        return [DestinationPrediction(**p) for p in predictions]
+    finally:
+        conn.close()
+
+
+@app.get("/teams/{team_name}/transfers", response_model=TeamTransferActivity)
+def get_team_transfers(team_name: str):
+    """Get transfer activity for a team."""
+    conn = get_connection()
+    try:
+        activity = get_team_transfer_activity(conn, team_name)
+        return TeamTransferActivity(**activity)
+    finally:
+        conn.close()
+
+
+@app.get("/teams/{team_name}/portal-impact", response_model=PortalImpact)
+def get_team_portal_impact(team_name: str):
+    """Get portal impact analysis for a team."""
+    impact = analyze_team_portal_impact(team_name)
+    return PortalImpact(**impact)
+
+
+@app.post("/transfer-portal/snapshot")
+def create_portal_snapshot():
+    """Generate a portal snapshot (admin)."""
+    snapshot = generate_portal_snapshot()
+    return snapshot
