@@ -95,13 +95,15 @@ def backfill_embeddings(
             for player in players:
                 try:
                     # Build identity text
-                    identity_text = build_identity_text({
-                        "name": player["name"],
-                        "position": player["position"],
-                        "team": player["team"],
-                        "year": player["year"],
-                        "hometown": player["hometown"] if player["hometown"] != ", " else None,
-                    })
+                    identity_text = build_identity_text(
+                        {
+                            "name": player["name"],
+                            "position": player["position"],
+                            "team": player["team"],
+                            "year": player["year"],
+                            "hometown": player["hometown"] if player["hometown"] != ", " else None,
+                        }
+                    )
 
                     if dry_run:
                         logger.info(f"[DRY RUN] Would embed: {identity_text}")

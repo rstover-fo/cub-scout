@@ -169,7 +169,17 @@ def main():
 
     args = parser.parse_args()
 
-    if not any([args.seed, args.process, args.all, args.crawl_247, args.link, args.grade, args.review_links]):
+    if not any(
+        [
+            args.seed,
+            args.process,
+            args.all,
+            args.crawl_247,
+            args.link,
+            args.grade,
+            args.review_links,
+        ]
+    ):
         parser.print_help()
         sys.exit(1)
 
