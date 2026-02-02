@@ -142,37 +142,43 @@ def test_find_similar_by_embedding(mock_db_connection):
 
     test_ids = ["test_similar_111", "test_similar_222", "test_similar_333"]
 
+    # Create embeddings with different directions (not just different magnitudes)
+    # Cosine similarity measures angle, so we need vectors pointing in different directions
+    base_embedding = [0.1] * 768 + [0.0] * 768  # First half non-zero
+    similar_embedding = [0.1] * 768 + [0.01] * 768  # Slightly different
+    different_embedding = [0.0] * 768 + [0.1] * 768  # Second half non-zero (orthogonal)
+
     try:
         # Insert a few players
         upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[0],
             identity_text="Player One | QB | Texas | 2024",
-            embedding=[0.1] * 1536,
+            embedding=base_embedding,
         )
         upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[1],
             identity_text="Player Two | QB | Texas | 2024",
-            embedding=[0.11] * 1536,  # Similar
+            embedding=similar_embedding,  # Similar direction
         )
         upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[2],
             identity_text="Player Three | RB | Alabama | 2024",
-            embedding=[0.9] * 1536,  # Different
+            embedding=different_embedding,  # Different direction
         )
 
         # Search for similar to first player
         results = find_similar_by_embedding(
             conn=mock_db_connection,
-            embedding=[0.1] * 1536,
+            embedding=base_embedding,
             limit=2,
             exclude_roster_id=test_ids[0],
         )
 
         assert len(results) == 2
-        # Player Two should be most similar
+        # Player Two should be most similar (closer direction to base)
         assert results[0]["roster_id"] == test_ids[1]
     finally:
         cur = mock_db_connection.cursor()

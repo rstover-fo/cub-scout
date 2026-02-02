@@ -785,3 +785,218 @@ def insert_portal_snapshot(
     snapshot_id = cur.fetchone()[0]
     conn.commit()
     return snapshot_id
+
+
+# Embedding functions
+
+
+def upsert_player_embedding(
+    conn: connection,
+    roster_id: str,
+    identity_text: str,
+    embedding: list[float],
+) -> int:
+    """Upsert a player embedding.
+
+    Args:
+        conn: Database connection
+        roster_id: The canonical roster ID
+        identity_text: The text that was embedded
+        embedding: The 1536-dim vector
+
+    Returns:
+        The embedding record ID
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.player_embeddings (roster_id, identity_text, embedding)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (roster_id) DO UPDATE SET
+            identity_text = EXCLUDED.identity_text,
+            embedding = EXCLUDED.embedding,
+            created_at = NOW()
+        RETURNING id
+        """,
+        (roster_id, identity_text, embedding),
+    )
+    embedding_id = cur.fetchone()[0]
+    conn.commit()
+    return embedding_id
+
+
+def get_player_embedding(
+    conn: connection,
+    roster_id: str,
+) -> dict | None:
+    """Get embedding for a roster player.
+
+    Args:
+        conn: Database connection
+        roster_id: The roster ID to look up
+
+    Returns:
+        Dict with id, roster_id, identity_text, created_at or None
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, roster_id, identity_text, created_at
+        FROM scouting.player_embeddings
+        WHERE roster_id = %s
+        """,
+        (roster_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    columns = [desc[0] for desc in cur.description]
+    return dict(zip(columns, row))
+
+
+def find_similar_by_embedding(
+    conn: connection,
+    embedding: list[float],
+    limit: int = 10,
+    exclude_roster_id: str | None = None,
+) -> list[dict]:
+    """Find similar players by embedding vector.
+
+    Uses cosine distance for similarity (lower = more similar).
+
+    Args:
+        conn: Database connection
+        embedding: Query embedding vector
+        limit: Max results to return
+        exclude_roster_id: Optional roster_id to exclude from results
+
+    Returns:
+        List of dicts with roster_id, identity_text, similarity score
+    """
+    cur = conn.cursor()
+
+    query = """
+        SELECT
+            roster_id,
+            identity_text,
+            1 - (embedding <=> %s::vector) as similarity
+        FROM scouting.player_embeddings
+        WHERE 1=1
+    """
+    params: list = [embedding]
+
+    if exclude_roster_id:
+        query += " AND roster_id != %s"
+        params.append(exclude_roster_id)
+
+    query += " ORDER BY embedding <=> %s::vector LIMIT %s"
+    params.extend([embedding, limit])
+
+    cur.execute(query, params)
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def insert_pending_link(
+    conn: connection,
+    source_name: str,
+    source_team: str | None,
+    source_context: dict | None,
+    candidate_roster_id: str | None,
+    match_score: float,
+    match_method: str,
+) -> int:
+    """Insert a pending link for review.
+
+    Args:
+        conn: Database connection
+        source_name: Name from source data
+        source_team: Team from source data
+        source_context: Additional context as JSON
+        candidate_roster_id: Best matching roster ID
+        match_score: Confidence score (0-1)
+        match_method: 'vector', 'fuzzy', or 'deterministic'
+
+    Returns:
+        The pending link ID
+    """
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO scouting.pending_links
+            (source_name, source_team, source_context, candidate_roster_id,
+             match_score, match_method)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            source_name,
+            source_team,
+            json.dumps(source_context) if source_context else None,
+            candidate_roster_id,
+            match_score,
+            match_method,
+        ),
+    )
+    link_id = cur.fetchone()[0]
+    conn.commit()
+    return link_id
+
+
+def get_pending_links(
+    conn: connection,
+    status: str = "pending",
+    limit: int = 100,
+) -> list[dict]:
+    """Get pending links for review.
+
+    Args:
+        conn: Database connection
+        status: Filter by status ('pending', 'approved', 'rejected')
+        limit: Max results
+
+    Returns:
+        List of pending link dicts
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, source_name, source_team, source_context,
+               candidate_roster_id, match_score, match_method,
+               status, created_at
+        FROM scouting.pending_links
+        WHERE status = %s
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        (status, limit),
+    )
+    columns = [desc[0] for desc in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def update_pending_link_status(
+    conn: connection,
+    link_id: int,
+    status: str,
+) -> None:
+    """Update pending link status.
+
+    Args:
+        conn: Database connection
+        link_id: The pending link ID
+        status: New status ('approved' or 'rejected')
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE scouting.pending_links
+        SET status = %s, reviewed_at = NOW()
+        WHERE id = %s
+        """,
+        (status, link_id),
+    )
+    conn.commit()
