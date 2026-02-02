@@ -14,7 +14,12 @@ from src.crawlers.recruiting.two47 import Two47Crawler
 from src.processing.entity_linking import run_entity_linking
 from src.processing.grading import run_grading_pipeline
 from src.processing.pipeline import process_reports
-from src.storage.db import get_connection, insert_report
+from src.storage.db import (
+    get_connection,
+    get_pending_links,
+    insert_report,
+    update_pending_link_status,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +78,38 @@ def seed_test_data():
     logger.info(f"Seeded {inserted} test reports")
 
 
+def review_pending_links():
+    """Interactive review of pending player links."""
+    conn = get_connection()
+    try:
+        pending = get_pending_links(conn, status="pending", limit=50)
+        print(f"\n{len(pending)} pending links to review\n")
+
+        for link in pending:
+            print(f"ID: {link['id']}")
+            print(f"  Source: {link['source_name']} ({link['source_team']})")
+            print(f"  Candidate: roster_id={link['candidate_roster_id']}")
+            print(f"  Score: {link['match_score']:.2%} ({link['match_method']})")
+            print(f"  Context: {link['source_context']}")
+
+            action = input("\n  [a]pprove / [r]eject / [s]kip / [q]uit: ").lower()
+
+            if action == "a":
+                update_pending_link_status(conn, link["id"], "approved")
+                print("  -> Approved")
+            elif action == "r":
+                update_pending_link_status(conn, link["id"], "rejected")
+                print("  -> Rejected")
+            elif action == "q":
+                break
+            else:
+                print("  -> Skipped")
+
+            print()
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run CFB Scout pipeline")
     parser.add_argument(
@@ -124,10 +161,15 @@ def main():
         action="store_true",
         help="Run grading pipeline to update player grades",
     )
+    parser.add_argument(
+        "--review-links",
+        action="store_true",
+        help="Review pending player links",
+    )
 
     args = parser.parse_args()
 
-    if not any([args.seed, args.process, args.all, args.crawl_247, args.link, args.grade]):
+    if not any([args.seed, args.process, args.all, args.crawl_247, args.link, args.grade, args.review_links]):
         parser.print_help()
         sys.exit(1)
 
@@ -155,6 +197,10 @@ def main():
         logger.info("Running grading pipeline...")
         result = run_grading_pipeline(batch_size=args.batch_size)
         logger.info(f"Grading complete: {result['players_updated']} players updated")
+
+    if args.review_links:
+        logger.info("Starting pending links review...")
+        review_pending_links()
 
 
 if __name__ == "__main__":
