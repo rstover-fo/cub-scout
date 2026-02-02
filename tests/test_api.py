@@ -77,3 +77,46 @@ def test_watchlist_requires_user_id():
     """Test that watchlist endpoints require user_id."""
     response = client.get("/watchlists")
     assert response.status_code == 422  # Validation error
+
+
+# Phase 5 - Alert Tests
+
+
+def test_get_alerts_requires_user_id():
+    """Test that alerts endpoints require user_id."""
+    response = client.get("/alerts")
+    assert response.status_code == 422
+
+
+def test_get_alert_history():
+    """Test alert history endpoint."""
+    response = client.get("/alerts/history?user_id=test-user")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+# Phase 5 - Transfer Portal Tests
+
+
+def test_get_active_portal_players():
+    """Test active portal players endpoint."""
+    response = client.get("/transfer-portal/active")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_get_portal_players_by_position():
+    """Test portal players filtered by position."""
+    response = client.get("/transfer-portal/active?position=QB")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_get_team_transfers():
+    """Test team transfer activity endpoint."""
+    response = client.get("/teams/Texas/transfers")
+    assert response.status_code == 200
+    data = response.json()
+    assert "outgoing" in data
+    assert "incoming" in data
+    assert "net" in data
