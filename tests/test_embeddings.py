@@ -1,6 +1,5 @@
 """Tests for player embedding generation."""
 
-import pytest
 from unittest.mock import patch, MagicMock
 
 from src.processing.embeddings import (
