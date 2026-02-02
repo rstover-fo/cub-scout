@@ -157,3 +157,36 @@ CREATE TABLE IF NOT EXISTS scouting.alert_history (
 
 CREATE INDEX idx_alert_history_alert ON scouting.alert_history (alert_id);
 CREATE INDEX idx_alert_history_unread ON scouting.alert_history (is_read) WHERE is_read = FALSE;
+
+-- Transfer portal events
+CREATE TABLE IF NOT EXISTS scouting.transfer_events (
+    id SERIAL PRIMARY KEY,
+    player_id INT REFERENCES scouting.players(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK (event_type IN ('entered', 'committed', 'withdrawn')),
+    from_team TEXT,
+    to_team TEXT,  -- NULL if entered, set if committed
+    event_date DATE NOT NULL,
+    source_url TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (player_id, event_type, event_date)
+);
+
+CREATE INDEX idx_transfer_events_player ON scouting.transfer_events (player_id);
+CREATE INDEX idx_transfer_events_date ON scouting.transfer_events (event_date DESC);
+CREATE INDEX idx_transfer_events_type ON scouting.transfer_events (event_type);
+CREATE INDEX idx_transfer_events_to_team ON scouting.transfer_events (to_team) WHERE to_team IS NOT NULL;
+
+-- Portal activity tracking (for historical analysis)
+CREATE TABLE IF NOT EXISTS scouting.portal_snapshots (
+    id SERIAL PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    total_in_portal INT NOT NULL DEFAULT 0,
+    by_position JSONB DEFAULT '{}',
+    by_conference JSONB DEFAULT '{}',
+    notable_entries TEXT[] DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (snapshot_date)
+);
+
+CREATE INDEX idx_portal_snapshots_date ON scouting.portal_snapshots (snapshot_date DESC);
