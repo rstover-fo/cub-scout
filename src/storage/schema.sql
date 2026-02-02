@@ -125,3 +125,35 @@ CREATE TABLE IF NOT EXISTS scouting.watch_lists (
 );
 
 CREATE INDEX idx_watch_lists_user ON scouting.watch_lists (user_id);
+
+-- Alert rules for watched players
+CREATE TABLE IF NOT EXISTS scouting.alerts (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    alert_type TEXT NOT NULL CHECK (alert_type IN ('grade_change', 'new_report', 'status_change', 'trend_change', 'portal_entry')),
+    player_id INT REFERENCES scouting.players(id) ON DELETE CASCADE,
+    team TEXT,  -- NULL for player-specific, set for team-wide alerts
+    threshold JSONB DEFAULT '{}',  -- type-specific config (e.g., {"min_change": 5})
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_checked_at TIMESTAMPTZ,
+    UNIQUE (user_id, name)
+);
+
+CREATE INDEX idx_alerts_user ON scouting.alerts (user_id);
+CREATE INDEX idx_alerts_player ON scouting.alerts (player_id);
+CREATE INDEX idx_alerts_active ON scouting.alerts (is_active) WHERE is_active = TRUE;
+
+-- Fired alert history
+CREATE TABLE IF NOT EXISTS scouting.alert_history (
+    id SERIAL PRIMARY KEY,
+    alert_id INT NOT NULL REFERENCES scouting.alerts(id) ON DELETE CASCADE,
+    fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    trigger_data JSONB NOT NULL,  -- What triggered it (old_grade, new_grade, report_id, etc.)
+    message TEXT NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX idx_alert_history_alert ON scouting.alert_history (alert_id);
+CREATE INDEX idx_alert_history_unread ON scouting.alert_history (is_read) WHERE is_read = FALSE;
