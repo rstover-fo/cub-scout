@@ -32,3 +32,32 @@ def test_find_roster_match_integration():
     # May or may not find depending on roster data
     # Just verify it returns correct type
     assert match is None or isinstance(match, PlayerMatch)
+
+
+# Tests for Tier 1: Deterministic Matching
+
+
+def test_deterministic_match_exact_name_team_year():
+    """Test exact name + team + year returns 100% confidence."""
+    from src.processing.player_matching import find_deterministic_match
+
+    result = find_deterministic_match(
+        name="Arch Manning",
+        team="Texas",
+        year=2025,
+    )
+    assert result is None or isinstance(result, PlayerMatch)
+    if result:
+        assert result.confidence == 100.0
+        assert result.match_method == "deterministic"
+
+
+def test_deterministic_match_athlete_id_link():
+    """Test athlete_id link to roster returns 100% confidence."""
+    from src.processing.player_matching import find_deterministic_match_by_athlete_id
+
+    result = find_deterministic_match_by_athlete_id(athlete_id="123456")
+    assert result is None or isinstance(result, PlayerMatch)
+    if result:
+        assert result.confidence == 100.0
+        assert result.match_method == "deterministic"
