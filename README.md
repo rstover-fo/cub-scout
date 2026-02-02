@@ -152,7 +152,15 @@ All tables live in the `scouting` schema:
 - [x] pending_links table for review queue
 - [x] Embedding generation module (OpenAI)
 - [x] Database functions for embeddings
-- [ ] Backfill embeddings for current roster (~30K players)
+- [x] Backfill embeddings for current roster (in progress)
+
+## Phase 6B Status (Unified Player Mart)
+
+- [x] player_mart materialized view (30K players)
+- [x] Joins roster, recruiting, scouting, portal data
+- [x] Indexes for team/position/portal queries
+- [x] Refresh function (CONCURRENTLY)
+- [x] pg_cron nightly refresh (7:30 AM CT)
 
 ## API Endpoints
 
