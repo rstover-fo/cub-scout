@@ -381,23 +381,49 @@ def find_best_match(
     name: str,
     team: str | None = None,
     position: str | None = None,
+    athlete_id: str | None = None,
+    year: int = 2025,
 ) -> PlayerMatch | None:
-    """Find best match across both roster and recruit data.
+    """Find best match across all tiers.
 
-    Tries roster first (current players), then recruits.
+    Simplified version that doesn't create pending links.
+    Use match_player_with_review() for full review queue support.
+
+    Matching order:
+    1. Deterministic (athlete_id or exact match)
+    2. Vector similarity
+    3. Fuzzy matching
     """
-    # Try current roster first
-    match = find_roster_match(name, team=team, position=position, year=2024)
-    if match and match.confidence >= 90:
+    # Tier 1: Deterministic
+    if athlete_id:
+        match = find_deterministic_match_by_athlete_id(athlete_id)
+        if match:
+            return match
+
+    if team:
+        match = find_deterministic_match(name, team, year)
+        if match:
+            return match
+
+    # Tier 2: Vector
+    match = find_vector_match(name, team=team, position=position, year=year)
+    if match:
         return match
 
-    # Try recruits
-    recruit_match = find_recruit_match(name, team=team, position=position)
+    # Tier 3: Fuzzy (existing logic, but with method tracking)
+    match = find_roster_match(name, team=team, position=position, year=year)
+    if match and match.confidence >= 90:
+        match.match_method = "fuzzy"
+        return match
 
-    # Return higher confidence match
+    recruit_match = find_recruit_match(name, team=team, position=position)
     if recruit_match:
         if not match or recruit_match.confidence > match.confidence:
+            recruit_match.match_method = "fuzzy"
             return recruit_match
+
+    if match:
+        match.match_method = "fuzzy"
 
     return match
 
