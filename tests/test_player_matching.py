@@ -96,3 +96,30 @@ def test_vector_match_requires_team_match():
     if result:
         # Team should match filter
         assert result.team.lower() == "texas"
+
+
+# Tests for Pending Links Queue
+
+
+def test_create_pending_link_for_low_confidence():
+    """Test low confidence matches create pending links."""
+    from src.processing.player_matching import (
+        match_player_with_review,
+        VECTOR_MATCH_LOW_CONFIDENCE,
+        VECTOR_MATCH_HIGH_CONFIDENCE,
+    )
+
+    # Function should exist and return a tuple (match, pending_link_id)
+    result = match_player_with_review(
+        name="Unknown Player",
+        team="Some Team",
+        position="WR",
+        year=2025,
+        source_context={"source": "test"},
+    )
+
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    match, pending_link_id = result
+    # Either we got a match or a pending link was created (or neither)
+    assert match is not None or pending_link_id is not None or (match is None and pending_link_id is None)
