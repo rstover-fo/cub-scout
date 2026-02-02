@@ -8,7 +8,7 @@ from ..storage.db import (
     link_report_to_player,
 )
 from .entity_extraction import extract_player_mentions, extract_player_mentions_claude
-from .player_matching import find_best_match
+from .player_matching import match_player_with_review
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,20 @@ def link_report_entities(
 
         for name, position, team in names:
             # Try to find existing roster/recruit match
-            match = find_best_match(
+            match, pending_link_id = match_player_with_review(
                 name,
                 team=team or default_team,
                 position=position,
+                year=2025,
+                source_context={
+                    "report_id": report["id"],
+                    "source_url": report.get("source_url"),
+                },
             )
+
+            if pending_link_id:
+                logger.info(f"Created pending link {pending_link_id} for {name}")
+                continue  # Skip this player, needs review
 
             if match:
                 # Create/update scouting player linked to roster/recruit
