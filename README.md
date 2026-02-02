@@ -46,6 +46,9 @@ python scripts/run_pipeline.py --all --teams texas --years 2025
 
 # Run grading pipeline (update player grades)
 python scripts/run_pipeline.py --grade
+
+# Review pending player links (interactive)
+python scripts/run_pipeline.py --review-links
 ```
 
 ## API Server
@@ -83,7 +86,7 @@ cfb-scout/
 │   │   ├── pipeline.py         # Batch processing orchestration
 │   │   ├── entity_extraction.py # Player name extraction (regex + Claude)
 │   │   ├── entity_linking.py   # Connect reports to player profiles
-│   │   ├── player_matching.py  # Fuzzy matching against roster/recruits
+│   │   ├── player_matching.py  # 3-tier matching (deterministic/vector/fuzzy)
 │   │   ├── aggregation.py      # Player profile aggregation
 │   │   └── grading.py          # Grading pipeline
 │   └── storage/        # Database operations
@@ -161,6 +164,14 @@ All tables live in the `scouting` schema:
 - [x] Indexes for team/position/portal queries
 - [x] Refresh function (CONCURRENTLY)
 - [x] pg_cron nightly refresh (7:30 AM CT)
+
+## Phase 6C Status (Enhanced Matching)
+
+- [x] Tier 1: Deterministic matching (exact name+team+year, athlete_id)
+- [x] Tier 2: Vector similarity via pgvector (>= 0.92 threshold)
+- [x] Tier 3: Fuzzy fallback with rapidfuzz
+- [x] Pending links review queue for 0.80-0.92 confidence
+- [x] CLI command: `--review-links`
 
 ## API Endpoints
 
