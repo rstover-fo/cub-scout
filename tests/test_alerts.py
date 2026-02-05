@@ -1,8 +1,8 @@
 """Tests for alert functions."""
 
 from src.storage.db import (
-    get_connection,
     create_alert,
+    get_connection,
     get_user_alerts,
 )
 

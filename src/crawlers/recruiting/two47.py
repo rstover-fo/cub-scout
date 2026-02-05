@@ -8,8 +8,8 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from ..base import BaseCrawler, CrawlResult
 from ...storage.db import get_connection, insert_report
+from ..base import BaseCrawler, CrawlResult
 
 logger = logging.getLogger(__name__)
 

@@ -1,9 +1,9 @@
 """Tests for player matching against roster data."""
 
 from src.processing.player_matching import (
-    fuzzy_match_name,
-    find_roster_match,
     PlayerMatch,
+    find_roster_match,
+    fuzzy_match_name,
 )
 
 

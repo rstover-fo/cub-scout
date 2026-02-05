@@ -5,8 +5,8 @@ from datetime import date
 
 from src.storage.db import (
     get_connection,
-    insert_timeline_snapshot,
     get_player_timeline,
+    insert_timeline_snapshot,
 )
 
 

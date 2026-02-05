@@ -1,8 +1,8 @@
 """Tests for watch list functions."""
 
 from src.storage.db import (
-    get_connection,
     create_watch_list,
+    get_connection,
     get_watch_lists,
 )
 

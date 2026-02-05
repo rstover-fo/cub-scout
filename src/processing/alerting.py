@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..storage.db import (
-    get_connection,
-    get_scouting_player,
-    get_player_timeline,
     fire_alert,
+    get_connection,
+    get_player_timeline,
+    get_scouting_player,
     update_alert_checked,
 )
 

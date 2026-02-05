@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 
-from ..storage.db import get_connection, get_scouting_player, get_player_pff_grades
+from ..storage.db import get_connection, get_player_pff_grades, get_scouting_player
 
 logger = logging.getLogger(__name__)
 

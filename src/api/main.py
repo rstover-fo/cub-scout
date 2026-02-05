@@ -1,60 +1,64 @@
 # src/api/main.py
 """FastAPI application for CFB Scout API."""
 
-from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
 
 load_dotenv()
 
-from ..storage.db import (  # noqa: E402
-    get_connection,
-    get_scouting_player,
-    get_player_timeline,
-    create_watch_list,
-    get_watch_lists,
-    get_watch_list,
-    add_to_watch_list,
-    remove_from_watch_list,
-    delete_watch_list,
-    create_alert,
-    get_user_alerts,
-    get_alert,
-    deactivate_alert,
-    delete_alert,
-    get_unread_alerts,
-    mark_alert_read,
-    get_active_portal_players,
-    get_player_transfer_history,
-    get_team_transfer_activity,
-)
-from ..processing.transfer_portal import (  # noqa: E402
-    predict_destination,
-    analyze_team_portal_impact,
-    generate_portal_snapshot,
-)
 from ..processing.aggregation import get_player_reports  # noqa: E402
-from ..processing.trends import get_rising_stocks, get_falling_stocks, analyze_player_trend  # noqa: E402
 from ..processing.comparison import compare_players, find_similar_players  # noqa: E402
 from ..processing.draft import build_draft_board, get_position_rankings  # noqa: E402
+from ..processing.transfer_portal import (  # noqa: E402
+    analyze_team_portal_impact,
+    generate_portal_snapshot,
+    predict_destination,
+)
+from ..processing.trends import (  # noqa: E402
+    analyze_player_trend,
+    get_falling_stocks,
+    get_rising_stocks,
+)
+from ..storage.db import (  # noqa: E402
+    add_to_watch_list,
+    create_alert,
+    create_watch_list,
+    deactivate_alert,
+    delete_alert,
+    delete_watch_list,
+    get_active_portal_players,
+    get_alert,
+    get_connection,
+    get_player_timeline,
+    get_player_transfer_history,
+    get_scouting_player,
+    get_team_transfer_activity,
+    get_unread_alerts,
+    get_user_alerts,
+    get_watch_list,
+    get_watch_lists,
+    mark_alert_read,
+    remove_from_watch_list,
+)
 from .models import (  # noqa: E402
-    PlayerSummary,
-    PlayerDetail,
-    PlayerWithTimeline,
-    TimelineSnapshot,
-    TeamSummary,
-    TrendData,
+    Alert,
+    AlertCreate,
+    AlertHistoryEntry,
     ComparisonResult,
+    DestinationPrediction,
+    DraftPlayerResponse,
+    PlayerDetail,
+    PlayerSummary,
+    PlayerWithTimeline,
+    PortalImpact,
+    PortalPlayer,
+    TeamSummary,
+    TeamTransferActivity,
+    TimelineSnapshot,
+    TransferEvent,
+    TrendData,
     WatchList,
     WatchListCreate,
-    DraftPlayerResponse,
-    AlertCreate,
-    Alert,
-    AlertHistoryEntry,
-    TransferEvent,
-    PortalPlayer,
-    DestinationPrediction,
-    TeamTransferActivity,
-    PortalImpact,
 )
 
 app = FastAPI(

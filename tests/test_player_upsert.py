@@ -1,6 +1,6 @@
 """Tests for scouting player upsert."""
 
-from src.storage.db import get_connection, upsert_scouting_player, get_scouting_player
+from src.storage.db import get_connection, get_scouting_player, upsert_scouting_player
 
 
 def test_upsert_scouting_player_creates_new():

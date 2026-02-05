@@ -1,8 +1,8 @@
 """Tests for draft board functionality."""
 
 from src.processing.draft import (
-    calculate_draft_score,
     DraftProjection,
+    calculate_draft_score,
 )
 
 

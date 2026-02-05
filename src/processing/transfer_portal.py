@@ -5,8 +5,8 @@ import re
 from datetime import date
 
 from ..storage.db import (
-    get_connection,
     get_active_portal_players,
+    get_connection,
     insert_portal_snapshot,
 )
 

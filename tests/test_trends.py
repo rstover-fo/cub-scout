@@ -1,8 +1,8 @@
 """Tests for trend analysis."""
 
 from src.processing.trends import (
-    calculate_trend,
     TrendDirection,
+    calculate_trend,
 )
 
 

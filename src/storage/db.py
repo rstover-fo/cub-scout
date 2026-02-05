@@ -1,9 +1,9 @@
 """Database connection and operations for CFB Scout."""
 
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
-from typing import Iterator
 
 import psycopg2
 from psycopg2.extensions import connection
@@ -140,11 +140,13 @@ def upsert_scouting_player(
         ON CONFLICT (name, team, class_year) DO UPDATE SET
             position = COALESCE(EXCLUDED.position, scouting.players.position),
             current_status = EXCLUDED.current_status,
-            roster_player_id = COALESCE(EXCLUDED.roster_player_id, scouting.players.roster_player_id),
+            roster_player_id = COALESCE(
+                EXCLUDED.roster_player_id, scouting.players.roster_player_id),
             recruit_id = COALESCE(EXCLUDED.recruit_id, scouting.players.recruit_id),
             composite_grade = COALESCE(EXCLUDED.composite_grade, scouting.players.composite_grade),
             traits = COALESCE(EXCLUDED.traits, scouting.players.traits),
-            draft_projection = COALESCE(EXCLUDED.draft_projection, scouting.players.draft_projection),
+            draft_projection = COALESCE(
+                EXCLUDED.draft_projection, scouting.players.draft_projection),
             comps = COALESCE(EXCLUDED.comps, scouting.players.comps),
             last_updated = NOW()
         RETURNING id

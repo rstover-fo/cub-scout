@@ -1,11 +1,11 @@
 """Tests for player embedding generation."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.processing.embeddings import (
+    EmbeddingResult,
     build_identity_text,
     generate_embedding,
-    EmbeddingResult,
 )
 
 
@@ -109,7 +109,7 @@ def test_upsert_player_embedding_new(mock_db_connection):
 
 def test_get_player_embedding(mock_db_connection):
     """Test retrieving a player embedding by roster_id."""
-    from src.storage.db import upsert_player_embedding, get_player_embedding
+    from src.storage.db import get_player_embedding, upsert_player_embedding
 
     test_roster_id = "test_embed_67890"
 
@@ -137,7 +137,7 @@ def test_get_player_embedding(mock_db_connection):
 
 def test_find_similar_by_embedding(mock_db_connection):
     """Test finding similar players by embedding vector."""
-    from src.storage.db import upsert_player_embedding, find_similar_by_embedding
+    from src.storage.db import find_similar_by_embedding, upsert_player_embedding
 
     test_ids = ["test_similar_111", "test_similar_222", "test_similar_333"]
 

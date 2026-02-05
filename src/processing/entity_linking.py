@@ -4,8 +4,8 @@ import logging
 
 from ..storage.db import (
     get_connection,
-    upsert_scouting_player,
     link_report_to_player,
+    upsert_scouting_player,
 )
 from .entity_extraction import extract_player_mentions, extract_player_mentions_claude
 from .player_matching import match_player_with_review

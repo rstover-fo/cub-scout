@@ -3,9 +3,9 @@
 from datetime import date
 
 from src.storage.db import (
+    get_active_portal_players,
     get_connection,
     insert_transfer_event,
-    get_active_portal_players,
 )
 
 
