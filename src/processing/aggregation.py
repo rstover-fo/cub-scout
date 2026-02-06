@@ -12,13 +12,12 @@ from ..storage.db import get_connection
 logger = logging.getLogger(__name__)
 
 
-def get_player_reports(player_id: int) -> list[dict]:
+async def get_player_reports(player_id: int) -> list[dict]:
     """Get all reports linked to a player."""
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
-        cur.execute(
+        await cur.execute(
             """
             SELECT id, source_url, source_name, raw_text, summary,
                    sentiment_score, crawled_at
@@ -29,10 +28,7 @@ def get_player_reports(player_id: int) -> list[dict]:
             (player_id,),
         )
         columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+        return [dict(zip(columns, row)) for row in await cur.fetchall()]
 
 
 def calculate_sentiment_average(reports: list[dict]) -> float | None:
@@ -111,12 +107,12 @@ def calculate_composite_grade(traits: dict, sentiment: float | None) -> int | No
     return max(0, min(100, base_grade))
 
 
-def aggregate_player_profile(player_id: int) -> dict:
+async def aggregate_player_profile(player_id: int) -> dict:
     """Aggregate all data for a player profile.
 
     Returns dict with sentiment, traits, grade, and report count.
     """
-    reports = get_player_reports(player_id)
+    reports = await get_player_reports(player_id)
 
     sentiment = calculate_sentiment_average(reports)
     traits = extract_traits_from_reports(reports)

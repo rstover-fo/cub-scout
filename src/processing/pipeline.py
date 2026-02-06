@@ -9,7 +9,7 @@ from .summarizer import summarize_report
 logger = logging.getLogger(__name__)
 
 
-def process_reports(batch_size: int = 50) -> dict:
+async def process_reports(batch_size: int = 50) -> dict:
     """Process unprocessed reports through Claude summarization.
 
     Args:
@@ -18,10 +18,8 @@ def process_reports(batch_size: int = 50) -> dict:
     Returns:
         Dict with processing stats.
     """
-    conn = get_connection()
-
-    try:
-        reports = get_unprocessed_reports(conn, limit=batch_size)
+    async with get_connection() as conn:
+        reports = await get_unprocessed_reports(conn, limit=batch_size)
         logger.info(f"Found {len(reports)} unprocessed reports")
 
         processed = 0
@@ -34,7 +32,7 @@ def process_reports(batch_size: int = 50) -> dict:
                     team_context=report["team_ids"],
                 )
 
-                mark_report_processed(
+                await mark_report_processed(
                     conn,
                     report_id=report["id"],
                     summary=result["summary"],
@@ -54,6 +52,3 @@ def process_reports(batch_size: int = 50) -> dict:
             "errors": errors,
             "timestamp": datetime.now().isoformat(),
         }
-
-    finally:
-        conn.close()

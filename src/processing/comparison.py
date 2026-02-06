@@ -62,7 +62,7 @@ def build_radar_data(
     return result
 
 
-def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
+async def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
     """Compare two players head-to-head.
 
     Args:
@@ -72,11 +72,9 @@ def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
     Returns:
         PlayerComparison with detailed comparison data
     """
-    conn = get_connection()
-
-    try:
-        p1 = get_scouting_player(conn, player1_id)
-        p2 = get_scouting_player(conn, player2_id)
+    async with get_connection() as conn:
+        p1 = await get_scouting_player(conn, player1_id)
+        p2 = await get_scouting_player(conn, player2_id)
 
         if not p1 or not p2:
             raise ValueError(f"Player not found: {player1_id if not p1 else player2_id}")
@@ -117,8 +115,8 @@ def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
         }
 
         # PFF comparison
-        pff1 = get_player_pff_grades(conn, player1_id)
-        pff2 = get_player_pff_grades(conn, player2_id)
+        pff1 = await get_player_pff_grades(conn, player1_id)
+        pff2 = await get_player_pff_grades(conn, player2_id)
 
         pff_comparison = None
         if pff1 and pff2:
@@ -153,11 +151,8 @@ def compare_players(player1_id: int, player2_id: int) -> PlayerComparison:
             },
         )
 
-    finally:
-        conn.close()
 
-
-def find_similar_players(
+async def find_similar_players(
     player_id: int,
     limit: int = 5,
 ) -> list[dict]:
@@ -167,11 +162,8 @@ def find_similar_players(
     """
     import numpy as np
 
-    conn = get_connection()
-    cur = conn.cursor()
-
-    try:
-        player = get_scouting_player(conn, player_id)
+    async with get_connection() as conn:
+        player = await get_scouting_player(conn, player_id)
         if not player or not player.get("traits"):
             return []
 
@@ -182,7 +174,8 @@ def find_similar_players(
             return []
 
         # Get other players with traits
-        cur.execute(
+        cur = conn.cursor()
+        await cur.execute(
             """
             SELECT id, name, team, position, traits
             FROM scouting.players
@@ -194,7 +187,7 @@ def find_similar_players(
         )
 
         similarities = []
-        for row in cur.fetchall():
+        for row in await cur.fetchall():
             other_id, name, team, position, other_traits = row
             if not other_traits:
                 continue
@@ -221,7 +214,3 @@ def find_similar_players(
 
         similarities.sort(key=lambda x: x["similarity"], reverse=True)
         return similarities[:limit]
-
-    finally:
-        cur.close()
-        conn.close()

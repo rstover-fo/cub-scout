@@ -168,7 +168,7 @@ def check_trend_change_alert(
     return AlertCheckResult(should_fire=False)
 
 
-def process_alerts_for_player(player_id: int) -> list[dict]:
+async def process_alerts_for_player(player_id: int) -> list[dict]:
     """Check all alerts for a specific player.
 
     Args:
@@ -177,13 +177,12 @@ def process_alerts_for_player(player_id: int) -> list[dict]:
     Returns:
         List of fired alert details
     """
-    conn = get_connection()
-    cur = conn.cursor()
-    fired = []
+    async with get_connection() as conn:
+        cur = conn.cursor()
+        fired = []
 
-    try:
         # Get all active alerts for this player
-        cur.execute(
+        await cur.execute(
             """
             SELECT a.id, a.user_id, a.name, a.alert_type, a.threshold, a.last_checked_at
             FROM scouting.alerts a
@@ -192,16 +191,16 @@ def process_alerts_for_player(player_id: int) -> list[dict]:
             (player_id,),
         )
 
-        alerts = cur.fetchall()
+        alerts = await cur.fetchall()
         if not alerts:
             return []
 
         # Get player data
-        player = get_scouting_player(conn, player_id)
+        player = await get_scouting_player(conn, player_id)
         if not player:
             return []
 
-        timeline = get_player_timeline(conn, player_id, limit=2)
+        timeline = await get_player_timeline(conn, player_id, limit=2)
 
         for alert_row in alerts:
             alert_id, user_id, name, alert_type, threshold, last_checked = alert_row
@@ -223,7 +222,7 @@ def process_alerts_for_player(player_id: int) -> list[dict]:
                 )
 
             if result.should_fire:
-                history_id = fire_alert(
+                history_id = await fire_alert(
                     conn,
                     alert_id,
                     result.trigger_data or {},
@@ -240,27 +239,22 @@ def process_alerts_for_player(player_id: int) -> list[dict]:
                     }
                 )
 
-            update_alert_checked(conn, alert_id)
+            await update_alert_checked(conn, alert_id)
 
         return fired
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def run_alert_check() -> dict:
+async def run_alert_check() -> dict:
     """Run alert check for all active alerts.
 
     Returns:
         Summary of alerts processed and fired
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Get distinct players with active alerts
-        cur.execute(
+        await cur.execute(
             """
             SELECT DISTINCT player_id
             FROM scouting.alerts
@@ -268,20 +262,16 @@ def run_alert_check() -> dict:
             """
         )
 
-        player_ids = [row[0] for row in cur.fetchall()]
+        player_ids = [row[0] for row in await cur.fetchall()]
 
-        total_fired = []
-        for player_id in player_ids:
-            fired = process_alerts_for_player(player_id)
-            total_fired.extend(fired)
+    total_fired = []
+    for player_id in player_ids:
+        fired = await process_alerts_for_player(player_id)
+        total_fired.extend(fired)
 
-        return {
-            "players_checked": len(player_ids),
-            "alerts_fired": len(total_fired),
-            "fired_details": total_fired,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-    finally:
-        cur.close()
-        conn.close()
+    return {
+        "players_checked": len(player_ids),
+        "alerts_fired": len(total_fired),
+        "fired_details": total_fired,
+        "timestamp": datetime.now().isoformat(),
+    }

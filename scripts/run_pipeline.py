@@ -3,6 +3,7 @@
 """Run the CFB Scout pipeline."""
 
 import argparse
+import asyncio
 import logging
 import sys
 
@@ -28,61 +29,58 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def seed_test_data():
+async def seed_test_data():
     """Seed some test data for development."""
-    conn = get_connection()
+    async with get_connection() as conn:
+        test_reports = [
+            {
+                "source_url": "https://example.com/texas-qb-update",
+                "source_name": "manual",
+                "content_type": "article",
+                "raw_text": """Texas QB Arch Manning continues to impress in spring practice.
+                The sophomore signal-caller has shown tremendous growth in his second year,
+                displaying improved pocket presence and decision-making. Coaches are excited
+                about his development and believe he's ready to lead the offense.""",
+                "team_ids": ["Texas"],
+            },
+            {
+                "source_url": "https://example.com/ohio-state-transfer",
+                "source_name": "manual",
+                "content_type": "article",
+                "raw_text": """Ohio State loses another key player to the transfer portal.
+                Starting linebacker announces departure amid concerns about playing time.
+                This marks the third defensive starter to leave this offseason, raising
+                questions about depth heading into the season.""",
+                "team_ids": ["Ohio State"],
+            },
+            {
+                "source_url": "https://example.com/georgia-recruiting",
+                "source_name": "manual",
+                "content_type": "article",
+                "raw_text": """Georgia lands another 5-star recruit, continuing their
+                dominant recruiting run. The Bulldogs now have the top-ranked class
+                for the third consecutive year. Kirby Smart's program shows no signs
+                of slowing down on the recruiting trail.""",
+                "team_ids": ["Georgia"],
+            },
+        ]
 
-    test_reports = [
-        {
-            "source_url": "https://example.com/texas-qb-update",
-            "source_name": "manual",
-            "content_type": "article",
-            "raw_text": """Texas QB Arch Manning continues to impress in spring practice.
-            The sophomore signal-caller has shown tremendous growth in his second year,
-            displaying improved pocket presence and decision-making. Coaches are excited
-            about his development and believe he's ready to lead the offense.""",
-            "team_ids": ["Texas"],
-        },
-        {
-            "source_url": "https://example.com/ohio-state-transfer",
-            "source_name": "manual",
-            "content_type": "article",
-            "raw_text": """Ohio State loses another key player to the transfer portal.
-            Starting linebacker announces departure amid concerns about playing time.
-            This marks the third defensive starter to leave this offseason, raising
-            questions about depth heading into the season.""",
-            "team_ids": ["Ohio State"],
-        },
-        {
-            "source_url": "https://example.com/georgia-recruiting",
-            "source_name": "manual",
-            "content_type": "article",
-            "raw_text": """Georgia lands another 5-star recruit, continuing their
-            dominant recruiting run. The Bulldogs now have the top-ranked class
-            for the third consecutive year. Kirby Smart's program shows no signs
-            of slowing down on the recruiting trail.""",
-            "team_ids": ["Georgia"],
-        },
-    ]
+        inserted = 0
+        for report in test_reports:
+            try:
+                report_id = await insert_report(conn, **report)
+                logger.info(f"Inserted test report {report_id}: {report['source_url']}")
+                inserted += 1
+            except Exception as e:
+                logger.warning(f"Skipping (likely duplicate): {e}")
 
-    inserted = 0
-    for report in test_reports:
-        try:
-            report_id = insert_report(conn, **report)
-            logger.info(f"Inserted test report {report_id}: {report['source_url']}")
-            inserted += 1
-        except Exception as e:
-            logger.warning(f"Skipping (likely duplicate): {e}")
-
-    conn.close()
     logger.info(f"Seeded {inserted} test reports")
 
 
-def review_pending_links():
+async def review_pending_links():
     """Interactive review of pending player links."""
-    conn = get_connection()
-    try:
-        pending = get_pending_links(conn, status="pending", limit=50)
+    async with get_connection() as conn:
+        pending = await get_pending_links(conn, status="pending", limit=50)
         print(f"\n{len(pending)} pending links to review\n")
 
         for link in pending:
@@ -95,10 +93,10 @@ def review_pending_links():
             action = input("\n  [a]pprove / [r]eject / [s]kip / [q]uit: ").lower()
 
             if action == "a":
-                update_pending_link_status(conn, link["id"], "approved")
+                await update_pending_link_status(conn, link["id"], "approved")
                 print("  -> Approved")
             elif action == "r":
-                update_pending_link_status(conn, link["id"], "rejected")
+                await update_pending_link_status(conn, link["id"], "rejected")
                 print("  -> Rejected")
             elif action == "q":
                 break
@@ -106,11 +104,9 @@ def review_pending_links():
                 print("  -> Skipped")
 
             print()
-    finally:
-        conn.close()
 
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Run CFB Scout pipeline")
     parser.add_argument(
         "--seed",
@@ -185,32 +181,36 @@ def main():
 
     if args.seed or args.all:
         logger.info("Seeding test data...")
-        seed_test_data()
+        await seed_test_data()
 
     if args.crawl_247 or args.all:
         logger.info("Crawling 247Sports...")
         crawler = Two47Crawler(teams=args.teams, years=args.years)
-        result = crawler.crawl()
+        result = await crawler.crawl()
         logger.info(f"247 crawl complete: {result.records_new} new records")
 
     if args.process or args.all:
         logger.info("Processing reports...")
-        result = process_reports(batch_size=args.batch_size)
+        result = await process_reports(batch_size=args.batch_size)
         logger.info(f"Processing complete: {result['processed']}/{result['total']} reports")
 
     if args.link or args.all:
         logger.info("Running entity linking...")
-        result = run_entity_linking(batch_size=args.batch_size)
+        result = await run_entity_linking(batch_size=args.batch_size)
         logger.info(f"Entity linking complete: {result['players_linked']} players linked")
 
     if args.grade or args.all:
         logger.info("Running grading pipeline...")
-        result = run_grading_pipeline(batch_size=args.batch_size)
+        result = await run_grading_pipeline(batch_size=args.batch_size)
         logger.info(f"Grading complete: {result['players_updated']} players updated")
 
     if args.review_links:
         logger.info("Starting pending links review...")
-        review_pending_links()
+        await review_pending_links()
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

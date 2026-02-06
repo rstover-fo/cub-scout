@@ -86,7 +86,7 @@ def extract_portal_mentions(text: str) -> dict:
     }
 
 
-def predict_destination(
+async def predict_destination(
     position: str,
     from_team: str,
     composite_grade: int | None = None,
@@ -107,12 +107,11 @@ def predict_destination(
     """
     # Historical destination patterns by position and grade tier
     # This is a simplified heuristic - could be enhanced with ML
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Get historical commitments for similar players
-        cur.execute(
+        await cur.execute(
             """
             SELECT te.to_team, COUNT(*) as count
             FROM scouting.transfer_events te
@@ -128,7 +127,7 @@ def predict_destination(
             (position, from_team),
         )
 
-        historical = cur.fetchall()
+        historical = await cur.fetchall()
 
         if not historical:
             # Return generic predictions based on grade tier
@@ -174,23 +173,16 @@ def predict_destination(
 
         return predictions
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def generate_portal_snapshot() -> dict:
+async def generate_portal_snapshot() -> dict:
     """Generate a daily snapshot of portal activity.
 
     Returns:
         Summary dict of portal state
     """
-    conn = get_connection()
-    cur = conn.cursor()
-
-    try:
+    async with get_connection() as conn:
         # Get all active portal players
-        active = get_active_portal_players(conn, limit=1000)
+        active = await get_active_portal_players(conn, limit=1000)
 
         # Count by position
         by_position = {}
@@ -208,7 +200,7 @@ def generate_portal_snapshot() -> dict:
         ]
 
         # Insert snapshot
-        snapshot_id = insert_portal_snapshot(
+        snapshot_id = await insert_portal_snapshot(
             conn,
             snapshot_date=date.today(),
             total_in_portal=len(active),
@@ -225,12 +217,8 @@ def generate_portal_snapshot() -> dict:
             "notable_entries": notable,
         }
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def analyze_team_portal_impact(team: str) -> dict:
+async def analyze_team_portal_impact(team: str) -> dict:
     """Analyze the impact of transfers on a team.
 
     Args:
@@ -239,12 +227,11 @@ def analyze_team_portal_impact(team: str) -> dict:
     Returns:
         Impact analysis dict
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Get outgoing players (grade lost)
-        cur.execute(
+        await cur.execute(
             """
             SELECT p.position, p.composite_grade
             FROM scouting.transfer_events te
@@ -254,12 +241,12 @@ def analyze_team_portal_impact(team: str) -> dict:
             """,
             (team,),
         )
-        outgoing = cur.fetchall()
+        outgoing = await cur.fetchall()
         outgoing_grades = [g for _, g in outgoing if g]
         avg_outgoing = sum(outgoing_grades) / len(outgoing_grades) if outgoing_grades else 0
 
         # Get incoming players (grade gained)
-        cur.execute(
+        await cur.execute(
             """
             SELECT p.position, p.composite_grade
             FROM scouting.transfer_events te
@@ -269,7 +256,7 @@ def analyze_team_portal_impact(team: str) -> dict:
             """,
             (team,),
         )
-        incoming = cur.fetchall()
+        incoming = await cur.fetchall()
         incoming_grades = [g for _, g in incoming if g]
         avg_incoming = sum(incoming_grades) / len(incoming_grades) if incoming_grades else 0
 
@@ -295,7 +282,3 @@ def analyze_team_portal_impact(team: str) -> dict:
             "grade_delta": round(avg_incoming - avg_outgoing, 1),
             "position_impact": position_impact,
         }
-
-    finally:
-        cur.close()
-        conn.close()

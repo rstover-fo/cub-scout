@@ -82,7 +82,7 @@ def calculate_trend(
         return TrendDirection.STABLE
 
 
-def analyze_player_trend(
+async def analyze_player_trend(
     player_id: int,
     days: int = 90,
 ) -> PlayerTrend:
@@ -95,10 +95,8 @@ def analyze_player_trend(
     Returns:
         PlayerTrend object with analysis results
     """
-    conn = get_connection()
-
-    try:
-        timeline = get_player_timeline(conn, player_id, limit=30)
+    async with get_connection() as conn:
+        timeline = await get_player_timeline(conn, player_id, limit=30)
 
         if len(timeline) < 3:
             return PlayerTrend(
@@ -149,11 +147,8 @@ def analyze_player_trend(
             period_days=days,
         )
 
-    finally:
-        conn.close()
 
-
-def get_rising_stocks(
+async def get_rising_stocks(
     limit: int = 20,
     min_data_points: int = 3,
     days: int = 90,
@@ -162,12 +157,11 @@ def get_rising_stocks(
 
     Returns list of players sorted by slope (steepest rise first).
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Get players with recent timeline entries
-        cur.execute(
+        await cur.execute(
             """
             SELECT DISTINCT p.id, p.name, p.team, p.position
             FROM scouting.players p
@@ -180,11 +174,11 @@ def get_rising_stocks(
             (days, min_data_points),
         )
 
-        players = cur.fetchall()
+        players = await cur.fetchall()
         trends = []
 
         for player_id, name, team, position in players:
-            trend = analyze_player_trend(player_id, days)
+            trend = await analyze_player_trend(player_id, days)
             if trend.direction == TrendDirection.RISING:
                 trends.append(
                     {
@@ -200,12 +194,8 @@ def get_rising_stocks(
         trends.sort(key=lambda x: x["slope"], reverse=True)
         return trends[:limit]
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def get_falling_stocks(
+async def get_falling_stocks(
     limit: int = 20,
     min_data_points: int = 3,
     days: int = 90,
@@ -214,11 +204,10 @@ def get_falling_stocks(
 
     Returns list of players sorted by slope (steepest fall first).
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
-        cur.execute(
+        await cur.execute(
             """
             SELECT DISTINCT p.id, p.name, p.team, p.position
             FROM scouting.players p
@@ -231,11 +220,11 @@ def get_falling_stocks(
             (days, min_data_points),
         )
 
-        players = cur.fetchall()
+        players = await cur.fetchall()
         trends = []
 
         for player_id, name, team, position in players:
-            trend = analyze_player_trend(player_id, days)
+            trend = await analyze_player_trend(player_id, days)
             if trend.direction == TrendDirection.FALLING:
                 trends.append(
                     {
@@ -250,7 +239,3 @@ def get_falling_stocks(
         # Sort by slope ascending (most negative first)
         trends.sort(key=lambda x: x["slope"])
         return trends[:limit]
-
-    finally:
-        cur.close()
-        conn.close()

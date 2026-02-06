@@ -23,10 +23,10 @@ def test_extract_portal_mentions_no_match():
     assert result["is_portal_related"] is False
 
 
-def test_predict_destination_returns_list():
+async def test_predict_destination_returns_list():
     """Test destination prediction returns ranked list."""
     # Mock input - player with certain traits/history
-    predictions = predict_destination(
+    predictions = await predict_destination(
         position="QB",
         from_team="Texas",
         composite_grade=85,

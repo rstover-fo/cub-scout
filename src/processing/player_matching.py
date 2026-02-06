@@ -47,7 +47,7 @@ def fuzzy_match_name(name1: str, name2: str) -> float:
     return fuzz.token_sort_ratio(n1, n2)
 
 
-def find_deterministic_match(
+async def find_deterministic_match(
     name: str,
     team: str,
     year: int = 2025,
@@ -56,12 +56,11 @@ def find_deterministic_match(
 
     Returns 100% confidence match or None.
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Exact match on name (first + last) + team + year
-        cur.execute(
+        await cur.execute(
             """
             SELECT id, first_name, last_name, team, position, year
             FROM core.roster
@@ -72,7 +71,7 @@ def find_deterministic_match(
             """,
             (name, team, year),
         )
-        row = cur.fetchone()
+        row = await cur.fetchone()
 
         if row:
             player_id, first, last, player_team, player_pos, player_year = row
@@ -89,23 +88,19 @@ def find_deterministic_match(
             )
 
         return None
-    finally:
-        cur.close()
-        conn.close()
 
 
-def find_deterministic_match_by_athlete_id(
+async def find_deterministic_match_by_athlete_id(
     athlete_id: str,
 ) -> PlayerMatch | None:
     """Tier 1: Match via recruiting.recruits.athlete_id -> core.roster.id.
 
     Returns 100% confidence match or None.
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
-        cur.execute(
+        await cur.execute(
             """
             SELECT r.id, r.first_name, r.last_name, r.team, r.position, r.year
             FROM core.roster r
@@ -115,7 +110,7 @@ def find_deterministic_match_by_athlete_id(
             """,
             (athlete_id,),
         )
-        row = cur.fetchone()
+        row = await cur.fetchone()
 
         if row:
             player_id, first, last, player_team, player_pos, player_year = row
@@ -132,12 +127,9 @@ def find_deterministic_match_by_athlete_id(
             )
 
         return None
-    finally:
-        cur.close()
-        conn.close()
 
 
-def find_vector_match(
+async def find_vector_match(
     name: str,
     team: str | None = None,
     position: str | None = None,
@@ -173,10 +165,9 @@ def find_vector_match(
         # If embedding fails, fall through to fuzzy
         return None
 
-    conn = get_connection()
-    try:
+    async with get_connection() as conn:
         # Search for similar players
-        similar = find_similar_by_embedding(
+        similar = await find_similar_by_embedding(
             conn,
             embedding=result.embedding,
             limit=5,
@@ -202,7 +193,7 @@ def find_vector_match(
                 # Fetch full player data from roster
                 roster_id = candidate["roster_id"]
                 cur = conn.cursor()
-                cur.execute(
+                await cur.execute(
                     """
                     SELECT id, first_name, last_name, team, position, year
                     FROM core.roster
@@ -210,8 +201,7 @@ def find_vector_match(
                     """,
                     (roster_id,),
                 )
-                row = cur.fetchone()
-                cur.close()
+                row = await cur.fetchone()
 
                 if row:
                     player_id, first, last, player_team, player_pos, player_year = row
@@ -228,11 +218,9 @@ def find_vector_match(
                     )
 
         return None
-    finally:
-        conn.close()
 
 
-def find_roster_match(
+async def find_roster_match(
     name: str,
     team: str | None = None,
     position: str | None = None,
@@ -249,10 +237,9 @@ def find_roster_match(
     Returns:
         PlayerMatch if found above threshold, else None.
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Build query with optional filters
         query = """
             SELECT id, first_name, last_name, team, position, year
@@ -269,8 +256,8 @@ def find_roster_match(
             query += " AND UPPER(position) = UPPER(%s)"
             params.append(position)
 
-        cur.execute(query, params)
-        candidates = cur.fetchall()
+        await cur.execute(query, params)
+        candidates = await cur.fetchall()
 
         best_match = None
         best_score = 0
@@ -296,12 +283,8 @@ def find_roster_match(
 
         return best_match
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def find_recruit_match(
+async def find_recruit_match(
     name: str,
     team: str | None = None,
     position: str | None = None,
@@ -318,10 +301,9 @@ def find_recruit_match(
     Returns:
         PlayerMatch if found above threshold, else None.
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         query = """
             SELECT id, name, committed_to, position, recruiting_year
             FROM recruiting.recruits
@@ -341,8 +323,8 @@ def find_recruit_match(
             query += " AND recruiting_year = %s"
             params.append(year)
 
-        cur.execute(query, params)
-        candidates = cur.fetchall()
+        await cur.execute(query, params)
+        candidates = await cur.fetchall()
 
         best_match = None
         best_score = 0
@@ -372,12 +354,8 @@ def find_recruit_match(
 
         return best_match
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def find_best_match(
+async def find_best_match(
     name: str,
     team: str | None = None,
     position: str | None = None,
@@ -396,27 +374,27 @@ def find_best_match(
     """
     # Tier 1: Deterministic
     if athlete_id:
-        match = find_deterministic_match_by_athlete_id(athlete_id)
+        match = await find_deterministic_match_by_athlete_id(athlete_id)
         if match:
             return match
 
     if team:
-        match = find_deterministic_match(name, team, year)
+        match = await find_deterministic_match(name, team, year)
         if match:
             return match
 
     # Tier 2: Vector
-    match = find_vector_match(name, team=team, position=position, year=year)
+    match = await find_vector_match(name, team=team, position=position, year=year)
     if match:
         return match
 
     # Tier 3: Fuzzy (existing logic, but with method tracking)
-    match = find_roster_match(name, team=team, position=position, year=year)
+    match = await find_roster_match(name, team=team, position=position, year=year)
     if match and match.confidence >= 90:
         match.match_method = "fuzzy"
         return match
 
-    recruit_match = find_recruit_match(name, team=team, position=position)
+    recruit_match = await find_recruit_match(name, team=team, position=position)
     if recruit_match:
         if not match or recruit_match.confidence > match.confidence:
             recruit_match.match_method = "fuzzy"
@@ -428,7 +406,7 @@ def find_best_match(
     return match
 
 
-def match_player_with_review(
+async def match_player_with_review(
     name: str,
     team: str | None = None,
     position: str | None = None,
@@ -458,22 +436,22 @@ def match_player_with_review(
     """
     # Tier 1: Deterministic
     if athlete_id:
-        match = find_deterministic_match_by_athlete_id(athlete_id)
+        match = await find_deterministic_match_by_athlete_id(athlete_id)
         if match:
             return (match, None)
 
     if team:
-        match = find_deterministic_match(name, team, year)
+        match = await find_deterministic_match(name, team, year)
         if match:
             return (match, None)
 
     # Tier 2: Vector similarity
-    vector_match = find_vector_match(name, team=team, position=position, year=year)
+    vector_match = await find_vector_match(name, team=team, position=position, year=year)
     if vector_match:
         return (vector_match, None)
 
     # Tier 3: Fuzzy matching (existing logic)
-    fuzzy_match = find_roster_match(name, team=team, position=position, year=year)
+    fuzzy_match = await find_roster_match(name, team=team, position=position, year=year)
 
     # Check if we need to create a pending link
     if fuzzy_match:
@@ -486,9 +464,8 @@ def match_player_with_review(
 
         # Medium confidence - create pending link for review
         if confidence_normalized >= VECTOR_MATCH_LOW_CONFIDENCE:
-            conn = get_connection()
-            try:
-                pending_id = insert_pending_link(
+            async with get_connection() as conn:
+                pending_id = await insert_pending_link(
                     conn,
                     source_name=name,
                     source_team=team,
@@ -498,11 +475,9 @@ def match_player_with_review(
                     match_method="fuzzy",
                 )
                 return (None, pending_id)
-            finally:
-                conn.close()
 
     # Try recruits as fallback
-    recruit_match = find_recruit_match(name, team=team, position=position, year=year)
+    recruit_match = await find_recruit_match(name, team=team, position=position, year=year)
     if recruit_match and recruit_match.confidence >= MATCH_THRESHOLD:
         recruit_match.match_method = "fuzzy"
         return (recruit_match, None)

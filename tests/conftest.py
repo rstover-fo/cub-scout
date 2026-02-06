@@ -13,16 +13,12 @@ load_dotenv(env_path)
 
 
 @pytest.fixture
-def mock_db_connection():
-    """Provide a database connection for tests.
-
-    Uses real database - tests that modify data should clean up.
-    """
+async def mock_db_connection():
+    """Provide an async database connection for tests."""
     from src.storage.db import get_connection
 
-    conn = get_connection()
-    yield conn
-    conn.close()
+    async with get_connection() as conn:
+        yield conn
 
 
 # ---------------------------------------------------------------------------

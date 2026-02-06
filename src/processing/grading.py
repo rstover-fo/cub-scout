@@ -13,14 +13,13 @@ from .aggregation import aggregate_player_profile
 logger = logging.getLogger(__name__)
 
 
-def get_players_needing_update(limit: int = 50) -> list[dict]:
+async def get_players_needing_update(limit: int = 50) -> list[dict]:
     """Get players who haven't been graded recently."""
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         # Players with reports but no grade, or stale grades
-        cur.execute(
+        await cur.execute(
             """
             SELECT DISTINCT p.id, p.name, p.team, p.class_year
             FROM scouting.players p
@@ -33,23 +32,18 @@ def get_players_needing_update(limit: int = 50) -> list[dict]:
             (limit,),
         )
         columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+        return [dict(zip(columns, row)) for row in await cur.fetchall()]
 
 
-def update_player_grade(player_id: int) -> dict:
+async def update_player_grade(player_id: int) -> dict:
     """Aggregate reports, update grade, and create timeline snapshot."""
-    conn = get_connection()
-
-    try:
+    async with get_connection() as conn:
         # Get aggregated data
-        agg = aggregate_player_profile(player_id)
+        agg = await aggregate_player_profile(player_id)
 
         # Update player record
         cur = conn.cursor()
-        cur.execute(
+        await cur.execute(
             """
             UPDATE scouting.players
             SET composite_grade = %s,
@@ -63,10 +57,10 @@ def update_player_grade(player_id: int) -> dict:
                 player_id,
             ),
         )
-        conn.commit()
+        await conn.commit()
 
         # Create timeline snapshot
-        insert_timeline_snapshot(
+        await insert_timeline_snapshot(
             conn,
             player_id=player_id,
             snapshot_date=date.today(),
@@ -78,13 +72,10 @@ def update_player_grade(player_id: int) -> dict:
 
         return agg
 
-    finally:
-        conn.close()
 
-
-def run_grading_pipeline(batch_size: int = 50) -> dict:
+async def run_grading_pipeline(batch_size: int = 50) -> dict:
     """Run grading pipeline on players needing updates."""
-    players = get_players_needing_update(batch_size)
+    players = await get_players_needing_update(batch_size)
     logger.info(f"Found {len(players)} players needing grade updates")
 
     updated = 0
@@ -92,7 +83,7 @@ def run_grading_pipeline(batch_size: int = 50) -> dict:
 
     for player in players:
         try:
-            result = update_player_grade(player["id"])
+            result = await update_player_grade(player["id"])
             logger.debug(f"Updated {player['name']}: grade={result['composite_grade']}")
             updated += 1
         except Exception as e:
