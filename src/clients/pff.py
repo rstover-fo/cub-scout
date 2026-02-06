@@ -45,7 +45,7 @@ class PFFClient:
         if not self.api_key:
             raise ValueError("PFF_API_KEY environment variable or api_key required")
 
-        self.client = httpx.Client(
+        self.client = httpx.AsyncClient(
             base_url=PFF_BASE_URL,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -54,7 +54,7 @@ class PFFClient:
             timeout=30.0,
         )
 
-    def get_player_grades(
+    async def get_player_grades(
         self,
         team: str | None = None,
         position: str | None = None,
@@ -83,7 +83,7 @@ class PFFClient:
             params["position"] = position
 
         try:
-            response = self.client.get("/grades/players", params=params)
+            response = await self.client.get("/grades/players", params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -111,7 +111,7 @@ class PFFClient:
             logger.error(f"PFF API error: {e}")
             raise
 
-    def get_player_by_name(
+    async def get_player_by_name(
         self,
         name: str,
         team: str | None = None,
@@ -136,7 +136,7 @@ class PFFClient:
             params["team"] = team
 
         try:
-            response = self.client.get("/grades/players/search", params=params)
+            response = await self.client.get("/grades/players/search", params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -165,12 +165,12 @@ class PFFClient:
             logger.error(f"PFF API error searching for {name}: {e}")
             return None
 
-    def close(self):
+    async def close(self):
         """Close the HTTP client."""
-        self.client.close()
+        await self.client.aclose()
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
-        self.close()
+    async def __aexit__(self, *args):
+        await self.close()

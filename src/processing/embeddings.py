@@ -3,20 +3,20 @@
 import os
 from dataclasses import dataclass
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
 # Lazy-initialized client (None until first use, allows mocking in tests)
-openai_client: OpenAI | None = None
+openai_client: AsyncOpenAI | None = None
 
 
-def _get_client() -> OpenAI:
-    """Get or create OpenAI client."""
+def _get_client() -> AsyncOpenAI:
+    """Get or create async OpenAI client."""
     global openai_client
     if openai_client is None:
-        openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     return openai_client
 
 
@@ -55,7 +55,7 @@ def build_identity_text(player: dict) -> str:
     return " | ".join(parts)
 
 
-def generate_embedding(identity_text: str) -> EmbeddingResult:
+async def generate_embedding(identity_text: str) -> EmbeddingResult:
     """Generate embedding vector for identity text.
 
     Args:
@@ -65,7 +65,7 @@ def generate_embedding(identity_text: str) -> EmbeddingResult:
         EmbeddingResult with text and 1536-dim vector
     """
     client = _get_client()
-    response = client.embeddings.create(
+    response = await client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=identity_text,
     )

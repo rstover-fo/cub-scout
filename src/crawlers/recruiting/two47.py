@@ -1,7 +1,7 @@
 """247Sports crawler for recruiting content."""
 
+import asyncio
 import logging
-import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -71,21 +71,21 @@ class Two47Crawler(BaseCrawler):
         self._client = None
 
     @property
-    def client(self) -> httpx.Client:
-        """Lazy-load HTTP client."""
+    def client(self) -> httpx.AsyncClient:
+        """Lazy-load async HTTP client."""
         if self._client is None:
-            self._client = httpx.Client(
+            self._client = httpx.AsyncClient(
                 headers={"User-Agent": USER_AGENT},
                 timeout=30.0,
                 follow_redirects=True,
             )
         return self._client
 
-    def _fetch_page(self, url: str) -> str | None:
+    async def _fetch_page(self, url: str) -> str | None:
         """Fetch page with rate limiting."""
         try:
-            time.sleep(REQUEST_DELAY)
-            response = self.client.get(url)
+            await asyncio.sleep(REQUEST_DELAY)
+            response = await self.client.get(url)
             response.raise_for_status()
             return response.text
         except httpx.HTTPError as e:
@@ -163,12 +163,12 @@ class Two47Crawler(BaseCrawler):
 
         return commits
 
-    def crawl_team_commits(self, team_slug: str, year: int) -> list[PlayerCommit]:
+    async def crawl_team_commits(self, team_slug: str, year: int) -> list[PlayerCommit]:
         """Crawl commits for a specific team/year."""
         url = build_team_commits_url(team_slug, year)
         logger.info(f"Crawling {url}")
 
-        html = self._fetch_page(url)
+        html = await self._fetch_page(url)
         if not html:
             return []
 
@@ -184,7 +184,7 @@ class Two47Crawler(BaseCrawler):
         async with get_connection() as conn:
             for team in self.teams:
                 for year in self.years:
-                    commits = self.crawl_team_commits(team, year)
+                    commits = await self.crawl_team_commits(team, year)
                     records_crawled += len(commits)
 
                     for commit in commits:
@@ -224,7 +224,7 @@ class Two47Crawler(BaseCrawler):
                             logger.warning(f"Error storing commit: {e}")
 
             if self._client:
-                self._client.close()
+                await self._client.aclose()
 
         completed = datetime.now()
         result = CrawlResult(

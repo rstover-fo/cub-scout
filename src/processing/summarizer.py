@@ -2,11 +2,9 @@
 
 import json
 import logging
-import os
 from typing import TypedDict
 
-import anthropic
-
+from ..clients.anthropic import get_anthropic_client
 from ..config import CLAUDE_MODEL
 
 logger = logging.getLogger(__name__)
@@ -22,19 +20,14 @@ class SummaryResult(TypedDict):
     key_topics: list[str]
 
 
-def get_client() -> anthropic.Anthropic:
-    """Get Anthropic client."""
-    return anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-
-def extract_sentiment(text: str) -> float:
+async def extract_sentiment(text: str) -> float:
     """Extract sentiment score from text using Claude.
 
     Returns a score from -1 (very negative) to 1 (very positive).
     """
-    client = get_client()
+    client = get_anthropic_client()
 
-    response = client.messages.create(
+    response = await client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=50,
         messages=[
@@ -58,7 +51,7 @@ Sentiment score:""",
         return 0.0
 
 
-def summarize_report(text: str, team_context: list[str] | None = None) -> SummaryResult:
+async def summarize_report(text: str, team_context: list[str] | None = None) -> SummaryResult:
     """Summarize a scouting report using Claude.
 
     Args:
@@ -68,13 +61,13 @@ def summarize_report(text: str, team_context: list[str] | None = None) -> Summar
     Returns:
         SummaryResult with summary, sentiment, and extracted entities.
     """
-    client = get_client()
+    client = get_anthropic_client()
 
     context = ""
     if team_context:
         context = f"Teams mentioned: {', '.join(team_context)}\n\n"
 
-    response = client.messages.create(
+    response = await client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=500,
         messages=[
