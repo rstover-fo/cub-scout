@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.crawlers.articles import On3ArticleCrawler, Two47ArticleCrawler
 from src.crawlers.recruiting.two47 import Two47Crawler
 from src.processing.alerting import run_alert_check
 from src.processing.entity_linking import run_entity_linking
@@ -196,7 +197,12 @@ async def async_main():
     parser.add_argument(
         "--crawl-247",
         action="store_true",
-        help="Crawl 247Sports for recruiting data",
+        help="[Deprecated] Crawl 247Sports commits. Use --crawl-articles instead.",
+    )
+    parser.add_argument(
+        "--crawl-articles",
+        action="store_true",
+        help="Crawl scouting articles from 247Sports and On3",
     )
     parser.add_argument(
         "--link",
@@ -245,6 +251,7 @@ async def async_main():
             args.process,
             args.all,
             args.crawl_247,
+            args.crawl_articles,
             args.link,
             args.grade,
             args.fetch_pff,
@@ -263,8 +270,28 @@ async def async_main():
         stage_results.append(sr)
         _log_stage(sr)
 
-    if args.crawl_247 or args.all:
-        logger.info("Crawling 247Sports...")
+    if args.crawl_articles or args.all:
+        logger.info("Crawling 247Sports articles...")
+        two47 = Two47ArticleCrawler(teams=args.teams)
+        sr = await run_stage("crawl-247-articles", two47.crawl())
+        stage_results.append(sr)
+        _log_stage(sr)
+
+        logger.info("Crawling On3 articles...")
+        on3 = On3ArticleCrawler(teams=args.teams)
+        sr = await run_stage("crawl-on3-articles", on3.crawl())
+        stage_results.append(sr)
+        _log_stage(sr)
+
+    if args.crawl_247:
+        import warnings
+
+        warnings.warn(
+            "--crawl-247 is deprecated, use --crawl-articles instead",
+            DeprecationWarning,
+            stacklevel=1,
+        )
+        logger.info("Crawling 247Sports commits (deprecated)...")
         crawler = Two47Crawler(teams=args.teams, years=args.years)
         sr = await run_stage("crawl-247", crawler.crawl())
         stage_results.append(sr)

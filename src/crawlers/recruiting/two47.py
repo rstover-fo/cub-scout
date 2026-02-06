@@ -1,7 +1,13 @@
-"""247Sports crawler for recruiting content."""
+"""247Sports crawler for recruiting content.
+
+.. deprecated::
+    Use :class:`src.crawlers.articles.Two47ArticleCrawler` instead.
+    This commit scraper produces thin one-liners with no scouting value.
+"""
 
 import asyncio
 import logging
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -175,7 +181,16 @@ class Two47Crawler(BaseCrawler):
         return self._parse_commits_page(html)
 
     async def crawl(self) -> CrawlResult:
-        """Crawl all configured teams/years."""
+        """Crawl all configured teams/years.
+
+        .. deprecated:: Use Two47ArticleCrawler for scouting articles.
+        """
+        warnings.warn(
+            "Two47Crawler is deprecated. Use Two47ArticleCrawler from "
+            "src.crawlers.articles for scouting article content.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         started = self.log_start()
         errors = []
         records_crawled = 0

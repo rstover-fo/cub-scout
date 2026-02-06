@@ -33,7 +33,7 @@ class BaseCrawler(ABC):
     source_name: str = "unknown"
 
     @abstractmethod
-    def crawl(self) -> CrawlResult:
+    async def crawl(self) -> CrawlResult:
         """Execute the crawl and return results."""
         pass
 

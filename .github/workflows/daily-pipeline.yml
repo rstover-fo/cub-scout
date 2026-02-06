@@ -29,10 +29,10 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Crawl 247Sports
+      - name: Crawl scouting articles
         id: crawl
         continue-on-error: true
-        run: python scripts/run_pipeline.py --crawl-247 --teams texas ohio-state georgia alabama
+        run: python scripts/run_pipeline.py --crawl-articles --teams texas ohio-state georgia alabama
 
       - name: Process reports
         id: process
@@ -61,7 +61,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Crawl 247Sports | ${{ steps.crawl.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Crawl articles | ${{ steps.crawl.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Process reports | ${{ steps.process.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Entity linking | ${{ steps.link.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Grading | ${{ steps.grade.outcome }} |" >> $GITHUB_STEP_SUMMARY
