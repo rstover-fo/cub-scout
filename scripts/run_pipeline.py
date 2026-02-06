@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.crawlers.recruiting.two47 import Two47Crawler
+from src.processing.alerting import run_alert_check
 from src.processing.entity_linking import run_entity_linking
 from src.processing.grading import run_grading_pipeline
 from src.processing.pipeline import process_reports
@@ -162,6 +163,11 @@ async def async_main():
         action="store_true",
         help="Review pending player links",
     )
+    parser.add_argument(
+        "--evaluate-alerts",
+        action="store_true",
+        help="Evaluate alert conditions for all players with active alerts",
+    )
 
     args = parser.parse_args()
 
@@ -174,6 +180,7 @@ async def async_main():
             args.link,
             args.grade,
             args.review_links,
+            args.evaluate_alerts,
         ]
     ):
         parser.print_help()
@@ -203,6 +210,14 @@ async def async_main():
         logger.info("Running grading pipeline...")
         result = await run_grading_pipeline(batch_size=args.batch_size)
         logger.info(f"Grading complete: {result['players_updated']} players updated")
+
+    if args.evaluate_alerts or args.all:
+        logger.info("Evaluating alerts...")
+        result = await run_alert_check()
+        logger.info(
+            f"Alert check complete: {result['alerts_fired']} alerts fired"
+            f" for {result['players_checked']} players"
+        )
 
     if args.review_links:
         logger.info("Starting pending links review...")
