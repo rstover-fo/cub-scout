@@ -1,0 +1,31 @@
+version: 2.1
+
+jobs:
+  lint:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - pip-{{ checksum "pyproject.toml" }}
+      - run:
+          name: Install dependencies
+          command: pip install -e ".[dev]"
+      - save_cache:
+          key: pip-{{ checksum "pyproject.toml" }}
+          paths:
+            - ~/.cache/pip
+      - run:
+          name: Lint
+          command: ruff check .
+      - run:
+          name: Format check
+          command: ruff format --check .
+      # Tests require a live Supabase database and API keys,
+      # so they are not run in CI.
+
+workflows:
+  ci:
+    jobs:
+      - lint
