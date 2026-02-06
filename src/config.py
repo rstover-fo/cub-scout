@@ -37,7 +37,3 @@ class Config:
             anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
         )
 
-
-def get_config() -> Config:
-    """Get application configuration."""
-    return Config.from_env()

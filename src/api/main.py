@@ -32,6 +32,7 @@ from ..storage.db import (  # noqa: E402
     delete_watch_list,
     get_active_portal_players,
     get_alert,
+    get_all_alert_history,
     get_connection,
     get_player_timeline,
     get_player_transfer_history,
@@ -402,7 +403,7 @@ async def get_alert_history(user_id: str = Query(...), unread_only: bool = Query
         if unread_only:
             history = await get_unread_alerts(conn, user_id)
         else:
-            history = await get_unread_alerts(conn, user_id)  # For now, just unread
+            history = await get_all_alert_history(conn, user_id)
         return [AlertHistoryEntry(**h) for h in history]
 
 

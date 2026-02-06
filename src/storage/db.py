@@ -639,6 +639,25 @@ async def get_unread_alerts(conn: psycopg.AsyncConnection, user_id: str) -> list
     return [dict(zip(columns, row)) for row in rows]
 
 
+async def get_all_alert_history(conn: psycopg.AsyncConnection, user_id: str) -> list[dict]:
+    """Get all alert history for a user (both read and unread)."""
+    cur = conn.cursor()
+    await cur.execute(
+        """
+        SELECT h.id, h.alert_id, h.fired_at, h.trigger_data, h.message, h.is_read,
+               a.name as alert_name, a.alert_type
+        FROM scouting.alert_history h
+        JOIN scouting.alerts a ON h.alert_id = a.id
+        WHERE a.user_id = %s
+        ORDER BY h.fired_at DESC
+        """,
+        (user_id,),
+    )
+    columns = [desc[0] for desc in cur.description]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
+
+
 async def mark_alert_read(conn: psycopg.AsyncConnection, history_id: int) -> None:
     """Mark an alert history entry as read."""
     cur = conn.cursor()

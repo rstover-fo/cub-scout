@@ -1,6 +1,7 @@
 """Entity linking pipeline - connects reports to player profiles."""
 
 import logging
+from datetime import datetime
 
 from ..storage.db import (
     get_connection,
@@ -76,7 +77,7 @@ async def link_report_entities(
                     name=name,
                     team=team or default_team or "Unknown",
                     position=position,
-                    class_year=2024,  # Default assumption
+                    class_year=datetime.now().year,  # Dynamic current year
                     current_status="active",
                 )
 

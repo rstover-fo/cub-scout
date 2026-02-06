@@ -170,6 +170,7 @@ async def get_position_rankings(position: str, limit: int = 25) -> list[DraftPla
     return await build_draft_board(position=position, limit=limit)
 
 
+# TODO: expose via GET /teams/{name}/draft-prospects endpoint
 async def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
     """Get draft-eligible players for a team."""
     async with get_connection() as conn:

@@ -43,4 +43,4 @@ def test_summarize_report_with_team_context(mock_anthropic):
     # Verify the call was made (team context is in the prompt)
     call_args = mock_anthropic.messages.create.call_args
     prompt = call_args[1]["messages"][0]["content"] if call_args[1] else call_args[0][0]
-    assert "Texas" in str(prompt) or True  # Context was passed
+    assert "Texas" in str(prompt)

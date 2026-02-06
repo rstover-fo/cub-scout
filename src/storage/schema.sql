@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS scouting.player_timeline (
 CREATE INDEX idx_timeline_player ON scouting.player_timeline (player_id);
 CREATE INDEX idx_timeline_date ON scouting.player_timeline (snapshot_date DESC);
 
+-- NOTE: Currently unused - reserved for future team-level analysis
 -- Team roster analysis
 CREATE TABLE IF NOT EXISTS scouting.team_rosters (
     id SERIAL PRIMARY KEY,
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS scouting.team_rosters (
 CREATE INDEX idx_team_rosters_team ON scouting.team_rosters (team);
 CREATE INDEX idx_team_rosters_season ON scouting.team_rosters (season DESC);
 
+-- NOTE: Currently unused - reserved for future crawl job tracking
 -- Crawl job tracking
 CREATE TABLE IF NOT EXISTS scouting.crawl_jobs (
     id SERIAL PRIMARY KEY,
