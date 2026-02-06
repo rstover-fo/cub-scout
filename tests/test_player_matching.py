@@ -1,5 +1,7 @@
 """Tests for player matching against roster data."""
 
+import pytest
+
 from src.processing.player_matching import (
     PlayerMatch,
     find_roster_match,
@@ -25,6 +27,7 @@ def test_fuzzy_match_name_different():
     assert score < 50
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_find_roster_match_integration():
     """Test finding a match in actual roster data."""
     # This test requires database connection
@@ -37,6 +40,7 @@ async def test_find_roster_match_integration():
 # Tests for Tier 1: Deterministic Matching
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_deterministic_match_exact_name_team_year():
     """Test exact name + team + year returns 100% confidence."""
     from src.processing.player_matching import find_deterministic_match
@@ -52,6 +56,7 @@ async def test_deterministic_match_exact_name_team_year():
         assert result.match_method == "deterministic"
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_deterministic_match_athlete_id_link():
     """Test athlete_id link to roster returns 100% confidence."""
     from src.processing.player_matching import find_deterministic_match_by_athlete_id
@@ -66,6 +71,7 @@ async def test_deterministic_match_athlete_id_link():
 # Tests for Tier 2: Vector Similarity Matching
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_vector_match_returns_high_similarity():
     """Test vector matching uses embeddings for similarity."""
     from src.processing.player_matching import find_vector_match
@@ -82,6 +88,7 @@ async def test_vector_match_returns_high_similarity():
         assert result.confidence >= 0 and result.confidence <= 100
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_vector_match_requires_team_match():
     """Test vector matching enforces team filter."""
     from src.processing.player_matching import find_vector_match
@@ -101,6 +108,7 @@ async def test_vector_match_requires_team_match():
 # Tests for Pending Links Queue
 
 
+@pytest.mark.skip(reason="requires database connection")
 async def test_create_pending_link_for_low_confidence():
     """Test low confidence matches create pending links."""
     from src.processing.player_matching import match_player_with_review

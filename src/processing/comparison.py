@@ -3,7 +3,12 @@
 import logging
 from dataclasses import dataclass
 
-from ..storage.db import get_connection, get_player_pff_grades, get_scouting_player
+from ..storage.db import (
+    find_similar_by_embedding,
+    get_connection,
+    get_player_pff_grades,
+    get_scouting_player,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,16 +161,64 @@ async def find_similar_players(
     player_id: int,
     limit: int = 5,
 ) -> list[dict]:
-    """Find players with similar trait profiles.
+    """Find players with similar profiles using pgvector embeddings.
 
-    Uses cosine similarity on trait vectors.
+    Falls back to trait-based cosine similarity if no embedding exists.
     """
-    import numpy as np
-
     async with get_connection() as conn:
         player = await get_scouting_player(conn, player_id)
-        if not player or not player.get("traits"):
+        if not player:
             return []
+
+        cur = conn.cursor()
+
+        # Try pgvector similarity via precomputed embeddings
+        roster_player_id = player.get("roster_player_id")
+        if roster_player_id:
+            await cur.execute(
+                "SELECT embedding FROM scouting.player_embeddings WHERE roster_id = %s",
+                (str(roster_player_id),),
+            )
+            emb_row = await cur.fetchone()
+
+            if emb_row and emb_row[0]:
+                similar = await find_similar_by_embedding(
+                    conn,
+                    embedding=emb_row[0],
+                    limit=limit,
+                    exclude_roster_id=str(roster_player_id),
+                )
+                # Join back to scouting.players for full info
+                results = []
+                for s in similar:
+                    await cur.execute(
+                        """
+                        SELECT id, name, team, position
+                        FROM scouting.players
+                        WHERE roster_player_id = %s
+                        """,
+                        (int(s["roster_id"]) if s["roster_id"].isdigit() else None,),
+                    )
+                    p_row = await cur.fetchone()
+                    if p_row:
+                        results.append(
+                            {
+                                "player_id": p_row[0],
+                                "name": p_row[1],
+                                "team": p_row[2],
+                                "position": p_row[3],
+                                "similarity": round(float(s["similarity"]), 3),
+                            }
+                        )
+                return results
+
+        # Fallback: trait-based cosine similarity
+        if not player.get("traits"):
+            return []
+
+        logger.warning("No embedding for player %d, using trait-based similarity", player_id)
+
+        import numpy as np
 
         player_traits = player["traits"]
         player_vector = np.array([player_traits.get(t, 0) for t in TRAIT_CATEGORIES])
@@ -173,8 +226,6 @@ async def find_similar_players(
         if np.linalg.norm(player_vector) == 0:
             return []
 
-        # Get other players with traits
-        cur = conn.cursor()
         await cur.execute(
             """
             SELECT id, name, team, position, traits
@@ -197,7 +248,6 @@ async def find_similar_players(
             if np.linalg.norm(other_vector) == 0:
                 continue
 
-            # Cosine similarity
             similarity = np.dot(player_vector, other_vector) / (
                 np.linalg.norm(player_vector) * np.linalg.norm(other_vector)
             )

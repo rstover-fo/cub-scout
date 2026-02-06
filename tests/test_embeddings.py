@@ -1,5 +1,7 @@
 """Tests for player embedding generation."""
 
+import pytest
+
 from src.processing.embeddings import (
     EmbeddingResult,
     build_identity_text,
@@ -43,18 +45,20 @@ def test_build_identity_text_missing_fields():
     assert result == "John Smith | Alabama | 2024"
 
 
-def test_generate_embedding_returns_result(mock_openai):
+@pytest.mark.asyncio
+async def test_generate_embedding_returns_result(mock_openai):
     """Test generating embedding returns EmbeddingResult."""
-    result = generate_embedding("Arch Manning | QB | Texas | 2024")
+    result = await generate_embedding("Arch Manning | QB | Texas | 2024")
 
     assert isinstance(result, EmbeddingResult)
     assert len(result.embedding) == 1536
     assert result.identity_text == "Arch Manning | QB | Texas | 2024"
 
 
-def test_generate_embedding_calls_openai(mock_openai):
+@pytest.mark.asyncio
+async def test_generate_embedding_calls_openai(mock_openai):
     """Test that generate_embedding calls OpenAI with correct params."""
-    generate_embedding("test text")
+    await generate_embedding("test text")
 
     mock_openai.embeddings.create.assert_called_once_with(
         model="text-embedding-3-small",

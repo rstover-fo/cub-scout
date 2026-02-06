@@ -45,6 +45,7 @@ EVENT_PATTERNS = {
 }
 
 
+# TODO: wire into entity_linking pipeline
 def extract_portal_mentions(text: str) -> dict:
     """Extract transfer portal mentions from text.
 

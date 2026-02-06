@@ -1,5 +1,7 @@
 """Tests for player entity extraction."""
 
+import pytest
+
 from src.processing.entity_extraction import (
     extract_player_mentions,
     extract_player_mentions_claude,
@@ -37,10 +39,11 @@ def test_extract_player_mentions_handles_positions():
     assert any("blue" in p.lower() for p in players)
 
 
-def test_extract_player_mentions_claude(mock_anthropic):
+@pytest.mark.asyncio
+async def test_extract_player_mentions_claude(mock_anthropic):
     """Test Claude-based player extraction returns structured results."""
     text = "Texas QB Arch Manning had a great spring practice."
-    results = extract_player_mentions_claude(text)
+    results = await extract_player_mentions_claude(text)
 
     assert len(results) >= 1
     assert results[0]["name"] == "Arch Manning"
@@ -50,7 +53,8 @@ def test_extract_player_mentions_claude(mock_anthropic):
     mock_anthropic.messages.create.assert_called_once()
 
 
-def test_extract_player_mentions_claude_empty_text(mock_anthropic):
+@pytest.mark.asyncio
+async def test_extract_player_mentions_claude_empty_text(mock_anthropic):
     """Test Claude extraction handles empty results."""
     # Override the mock to return empty array for this call
     from tests.conftest import _make_anthropic_response
@@ -58,5 +62,5 @@ def test_extract_player_mentions_claude_empty_text(mock_anthropic):
     mock_anthropic.messages.create.side_effect = None
     mock_anthropic.messages.create.return_value = _make_anthropic_response("[]")
 
-    results = extract_player_mentions_claude("")
+    results = await extract_player_mentions_claude("")
     assert results == []

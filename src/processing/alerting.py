@@ -221,6 +221,41 @@ async def process_alerts_for_player(player_id: int) -> list[dict]:
                     threshold=threshold,
                 )
 
+            elif alert_type == "new_report":
+                # Get report count from player data
+                report_count_before = (threshold or {}).get("last_count", 0)
+                report_count_after = player.get("report_count", 0)
+                result = check_new_report_alert(
+                    report_count_before=report_count_before,
+                    report_count_after=report_count_after,
+                    threshold=threshold,
+                )
+
+            elif alert_type == "trend_change":
+                # Get trend from timeline
+                if len(timeline) >= 2:
+                    old_direction = timeline[1].get("trend_direction")
+                    new_direction = timeline[0].get("trend_direction", "stable")
+                    if old_direction and new_direction:
+                        result = check_trend_change_alert(
+                            old_direction=old_direction,
+                            new_direction=new_direction,
+                            threshold=threshold,
+                        )
+
+            elif alert_type == "portal_entry":
+                old_status = player.get("previous_status", player.get("current_status"))
+                new_status = player.get("current_status")
+                if new_status == "portal":
+                    result = AlertCheckResult(
+                        should_fire=True,
+                        message="Player has entered the transfer portal",
+                        trigger_data={
+                            "old_status": old_status,
+                            "new_status": "portal",
+                        },
+                    )
+
             if result.should_fire:
                 history_id = await fire_alert(
                     conn,

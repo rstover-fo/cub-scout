@@ -27,7 +27,7 @@ async def process_reports(batch_size: int = 50) -> dict:
 
         for report in reports:
             try:
-                result = summarize_report(
+                result = await summarize_report(
                     text=report["raw_text"],
                     team_context=report["team_ids"],
                 )

@@ -2,10 +2,8 @@
 """Player profile aggregation from scouting reports."""
 
 import logging
-import os
 
-import anthropic
-
+from ..clients.anthropic import get_anthropic_client
 from ..config import CLAUDE_MODEL
 from ..storage.db import get_connection
 
@@ -39,7 +37,7 @@ def calculate_sentiment_average(reports: list[dict]) -> float | None:
     return round(sum(scores) / len(scores), 2)
 
 
-def extract_traits_from_reports(reports: list[dict]) -> dict:
+async def extract_traits_from_reports(reports: list[dict]) -> dict:
     """Use Claude to extract player traits from report summaries.
 
     Returns dict with trait categories and ratings.
@@ -52,9 +50,9 @@ def extract_traits_from_reports(reports: list[dict]) -> dict:
         for r in reports[:10]  # Limit to recent 10
     )
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = get_anthropic_client()
 
-    response = client.messages.create(
+    response = await client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=500,
         messages=[
@@ -115,7 +113,7 @@ async def aggregate_player_profile(player_id: int) -> dict:
     reports = await get_player_reports(player_id)
 
     sentiment = calculate_sentiment_average(reports)
-    traits = extract_traits_from_reports(reports)
+    traits = await extract_traits_from_reports(reports)
     grade = calculate_composite_grade(traits, sentiment)
 
     return {

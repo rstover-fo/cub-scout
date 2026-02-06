@@ -1,0 +1,91 @@
+name: Daily Pipeline
+
+on:
+  schedule:
+    - cron: "0 12 * * *" # 12:00 UTC = 7:00 AM CT
+  workflow_dispatch:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Crawl 247Sports
+        id: crawl
+        continue-on-error: true
+        run: python scripts/run_pipeline.py --crawl-247 --teams texas ohio-state georgia alabama
+
+      - name: Process reports
+        id: process
+        continue-on-error: true
+        run: python scripts/run_pipeline.py --process --batch-size 100
+
+      - name: Entity linking
+        id: link
+        continue-on-error: true
+        run: python scripts/run_pipeline.py --link --batch-size 100
+
+      - name: Grading
+        id: grade
+        continue-on-error: true
+        run: python scripts/run_pipeline.py --grade --batch-size 100
+
+      - name: Evaluate alerts
+        id: alerts
+        continue-on-error: true
+        run: python scripts/run_pipeline.py --evaluate-alerts
+
+      - name: Pipeline summary
+        if: always()
+        run: |
+          echo "## Daily Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Crawl 247Sports | ${{ steps.crawl.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Process reports | ${{ steps.process.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Entity linking | ${{ steps.link.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Grading | ${{ steps.grade.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Evaluate alerts | ${{ steps.alerts.outcome }} |" >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+          for STAGE in crawl process link grade alerts; do
+            OUTCOME="${{ steps.crawl.outcome }}"
+            case "$STAGE" in
+              process) OUTCOME="${{ steps.process.outcome }}" ;;
+              link) OUTCOME="${{ steps.link.outcome }}" ;;
+              grade) OUTCOME="${{ steps.grade.outcome }}" ;;
+              alerts) OUTCOME="${{ steps.alerts.outcome }}" ;;
+            esac
+            if [ "$OUTCOME" = "failure" ]; then
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo ""
+            echo "**$FAILED stage(s) failed.** Check logs above for details." >> $GITHUB_STEP_SUMMARY
+            echo "::warning::$FAILED pipeline stage(s) failed"
+          else
+            echo ""
+            echo "All stages completed successfully." >> $GITHUB_STEP_SUMMARY
+          fi

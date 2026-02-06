@@ -36,8 +36,3 @@ class Config:
             reddit_user_agent=os.environ.get("REDDIT_USER_AGENT", "cfb-scout:v0.1.0"),
             anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
         )
-
-
-def get_config() -> Config:
-    """Get application configuration."""
-    return Config.from_env()

@@ -1,6 +1,7 @@
 """Entity linking pipeline - connects reports to player profiles."""
 
 import logging
+from datetime import datetime
 
 from ..storage.db import (
     get_connection,
@@ -31,7 +32,7 @@ async def link_report_entities(
 
         # Extract player mentions
         if use_claude:
-            mentions = extract_player_mentions_claude(report["raw_text"])
+            mentions = await extract_player_mentions_claude(report["raw_text"])
             names = [(m["name"], m.get("position"), m.get("team")) for m in mentions]
         else:
             names = [(name, None, None) for name in extract_player_mentions(report["raw_text"])]
@@ -76,7 +77,7 @@ async def link_report_entities(
                     name=name,
                     team=team or default_team or "Unknown",
                     position=position,
-                    class_year=2024,  # Default assumption
+                    class_year=datetime.now().year,  # Dynamic current year
                     current_status="active",
                 )
 

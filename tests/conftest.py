@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from dotenv import load_dotenv
@@ -87,16 +87,16 @@ def _route_anthropic_response(**kwargs) -> MagicMock:
 def mock_anthropic():
     """Auto-mock all Anthropic API calls so tests never hit the real API.
 
-    Patches anthropic.Anthropic at every call site in the processing package.
-    The mock routes responses based on prompt content.
+    Patches get_anthropic_client at every call site in the processing package.
+    The mock routes responses based on prompt content via AsyncMock.
     """
     mock_client = MagicMock()
-    mock_client.messages.create.side_effect = _route_anthropic_response
+    mock_client.messages.create = AsyncMock(side_effect=_route_anthropic_response)
 
     targets = [
-        "src.processing.entity_extraction.anthropic.Anthropic",
-        "src.processing.summarizer.anthropic.Anthropic",
-        "src.processing.aggregation.anthropic.Anthropic",
+        "src.processing.entity_extraction.get_anthropic_client",
+        "src.processing.summarizer.get_anthropic_client",
+        "src.processing.aggregation.get_anthropic_client",
     ]
     patches = [patch(target, return_value=mock_client) for target in targets]
 
@@ -128,7 +128,7 @@ def mock_openai():
     Patches the lazy _get_client in embeddings.py.
     """
     mock_client = MagicMock()
-    mock_client.embeddings.create.return_value = _make_openai_embedding_response()
+    mock_client.embeddings.create = AsyncMock(return_value=_make_openai_embedding_response())
 
     with patch("src.processing.embeddings._get_client", return_value=mock_client):
         yield mock_client

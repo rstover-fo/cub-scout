@@ -110,7 +110,7 @@ async def backfill_embeddings(
                         continue
 
                     # Generate embedding
-                    result = generate_embedding(identity_text)
+                    result = await generate_embedding(identity_text)
 
                     # Store in database
                     await upsert_player_embedding(

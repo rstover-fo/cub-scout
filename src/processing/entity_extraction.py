@@ -1,12 +1,10 @@
 """Player entity extraction from scouting content."""
 
 import logging
-import os
 import re
 from typing import TypedDict
 
-import anthropic
-
+from ..clients.anthropic import get_anthropic_client
 from ..config import CLAUDE_MODEL
 
 logger = logging.getLogger(__name__)
@@ -150,14 +148,14 @@ class PlayerMention(TypedDict):
     context: str  # "starter", "recruit", "transfer", etc.
 
 
-def extract_player_mentions_claude(text: str) -> list[PlayerMention]:
+async def extract_player_mentions_claude(text: str) -> list[PlayerMention]:
     """Extract player mentions using Claude for higher accuracy.
 
     Use this for processing important content where accuracy matters.
     """
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = get_anthropic_client()
 
-    response = client.messages.create(
+    response = await client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=1000,
         messages=[

@@ -1,11 +1,15 @@
 """Draft board and projection system."""
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, timedelta
 from enum import Enum
 
-from ..storage.db import get_connection, get_player_pff_grades
-from .trends import analyze_player_trend
+import numpy as np
+
+from ..storage.db import get_connection
+from .trends import TrendDirection, calculate_trend
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,84 @@ def get_projection(draft_score: float) -> DraftProjection:
         return DraftProjection.UDFA
 
 
+async def _batch_load_pff_grades(
+    conn,
+    player_ids: list[int],
+) -> dict[int, float]:
+    """Batch-load the most recent PFF overall grade for each player.
+
+    Returns:
+        Map of player_id -> overall_grade (most recent season first).
+    """
+    if not player_ids:
+        return {}
+    cur = conn.cursor()
+    await cur.execute(
+        """
+        SELECT player_id, overall_grade
+        FROM scouting.pff_grades
+        WHERE player_id = ANY(%s)
+        ORDER BY season DESC, week DESC NULLS FIRST
+        """,
+        (player_ids,),
+    )
+    pff_map: dict[int, float] = {}
+    for pid, grade in await cur.fetchall():
+        if pid not in pff_map:  # keep most recent (first due to ORDER BY)
+            pff_map[pid] = float(grade)
+    return pff_map
+
+
+async def _batch_load_trends(
+    conn,
+    player_ids: list[int],
+    days: int = 90,
+) -> dict[int, tuple[float, str]]:
+    """Batch-load timeline data and compute trend slope/direction in-memory.
+
+    Returns:
+        Map of player_id -> (slope, direction_value).
+    """
+    if not player_ids:
+        return {}
+    cur = conn.cursor()
+    cutoff = date.today() - timedelta(days=days)
+    await cur.execute(
+        """
+        SELECT player_id, grade_at_time, snapshot_date
+        FROM scouting.player_timeline
+        WHERE player_id = ANY(%s)
+          AND snapshot_date >= %s
+          AND grade_at_time IS NOT NULL
+        ORDER BY player_id, snapshot_date ASC
+        """,
+        (player_ids, cutoff),
+    )
+
+    # Group grades by player
+    grades_by_player: dict[int, list[float]] = defaultdict(list)
+    for pid, grade, _ in await cur.fetchall():
+        grades_by_player[pid].append(float(grade))
+
+    trend_map: dict[int, tuple[float, str]] = {}
+    for pid in player_ids:
+        grades = grades_by_player.get(pid, [])
+        if len(grades) < 3:
+            trend_map[pid] = (0.0, TrendDirection.UNKNOWN.value)
+            continue
+
+        direction = calculate_trend(grades)
+        x = np.arange(len(grades))
+        y = np.array(grades)
+        n = len(grades)
+        slope = float(
+            (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (n * np.sum(x**2) - np.sum(x) ** 2)
+        )
+        trend_map[pid] = (slope, direction.value)
+
+    return trend_map
+
+
 async def build_draft_board(
     class_year: int | None = None,
     position: str | None = None,
@@ -111,7 +193,7 @@ async def build_draft_board(
             FROM scouting.players
             WHERE current_status IN ('active', 'draft_eligible')
         """
-        params = []
+        params: list = []
 
         if class_year:
             query += " AND class_year = %s"
@@ -125,22 +207,25 @@ async def build_draft_board(
         params.append(limit * 2)  # Get extra for filtering
 
         await cur.execute(query, params)
+        rows = await cur.fetchall()
+
+        player_ids = [row[0] for row in rows]
+
+        # Batch-load PFF grades and trends (2 queries instead of 2N)
+        pff_map = await _batch_load_pff_grades(conn, player_ids)
+        trend_map = await _batch_load_trends(conn, player_ids)
 
         players = []
-        for row in await cur.fetchall():
+        for row in rows:
             player_id, name, pos, team, year, grade, status = row
 
-            # Get PFF grade
-            pff_grades = await get_player_pff_grades(conn, player_id)
-            pff_grade = float(pff_grades[0]["overall_grade"]) if pff_grades else None
-
-            # Get trend
-            trend = await analyze_player_trend(player_id, days=90)
+            pff_grade = pff_map.get(player_id)
+            slope, direction = trend_map.get(player_id, (0.0, TrendDirection.UNKNOWN.value))
 
             draft_score = calculate_draft_score(
                 composite_grade=grade,
                 pff_grade=pff_grade,
-                trend_slope=trend.slope,
+                trend_slope=slope,
             )
 
             projection = get_projection(draft_score)
@@ -156,7 +241,7 @@ async def build_draft_board(
                     projection=projection,
                     composite_grade=grade,
                     pff_grade=round(pff_grade, 1) if pff_grade else None,
-                    trend_direction=trend.direction.value,
+                    trend_direction=direction,
                 )
             )
 
@@ -170,6 +255,7 @@ async def get_position_rankings(position: str, limit: int = 25) -> list[DraftPla
     return await build_draft_board(position=position, limit=limit)
 
 
+# TODO: expose via GET /teams/{name}/draft-prospects endpoint
 async def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
     """Get draft-eligible players for a team."""
     async with get_connection() as conn:
@@ -186,20 +272,25 @@ async def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
             """,
             (team,),
         )
+        rows = await cur.fetchall()
+
+        player_ids = [row[0] for row in rows]
+
+        # Batch-load PFF grades and trends (2 queries instead of 2N)
+        pff_map = await _batch_load_pff_grades(conn, player_ids)
+        trend_map = await _batch_load_trends(conn, player_ids)
 
         players = []
-        for row in await cur.fetchall():
+        for row in rows:
             player_id, name, pos, team_name, year, grade, status = row
 
-            pff_grades = await get_player_pff_grades(conn, player_id)
-            pff_grade = float(pff_grades[0]["overall_grade"]) if pff_grades else None
-
-            trend = await analyze_player_trend(player_id, days=90)
+            pff_grade = pff_map.get(player_id)
+            slope, direction = trend_map.get(player_id, (0.0, TrendDirection.UNKNOWN.value))
 
             draft_score = calculate_draft_score(
                 composite_grade=grade,
                 pff_grade=pff_grade,
-                trend_slope=trend.slope,
+                trend_slope=slope,
             )
 
             players.append(
@@ -213,7 +304,7 @@ async def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
                     projection=get_projection(draft_score),
                     composite_grade=grade,
                     pff_grade=round(pff_grade, 1) if pff_grade else None,
-                    trend_direction=trend.direction.value,
+                    trend_direction=direction,
                 )
             )
 
