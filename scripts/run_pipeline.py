@@ -4,8 +4,11 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
+import time
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -28,6 +31,65 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StageResult:
+    stage: str
+    status: str  # "ok", "error", "skipped"
+    records: int = 0
+    errors: int = 0
+    duration_seconds: float = 0.0
+
+
+async def run_stage(name: str, coro) -> StageResult:
+    """Run a pipeline stage with timing and error capture."""
+    start = time.monotonic()
+    try:
+        result = await coro
+        duration = time.monotonic() - start
+        # Extract counts — handle both dicts and CrawlResult dataclass
+        if isinstance(result, dict):
+            records = (
+                result.get("records_new", 0)
+                or result.get("processed", 0)
+                or result.get("players_updated", 0)
+                or result.get("alerts_fired", 0)
+                or 0
+            )
+            errors = result.get("errors", 0) or 0
+        elif hasattr(result, "records_new"):
+            records = result.records_new or 0
+            errors = len(result.errors) if hasattr(result, "errors") else 0
+        else:
+            records = 0
+            errors = 0
+        return StageResult(
+            stage=name,
+            status="ok",
+            records=records,
+            errors=errors,
+            duration_seconds=round(duration, 2),
+        )
+    except Exception as e:
+        duration = time.monotonic() - start
+        logger.error(f"Stage {name} failed: {e}")
+        return StageResult(stage=name, status="error", duration_seconds=round(duration, 2))
+
+
+def _log_stage(sr: StageResult) -> None:
+    """Emit structured JSON log for a completed stage."""
+    logger.info(
+        json.dumps(
+            {
+                "stage": sr.stage,
+                "status": sr.status,
+                "records": sr.records,
+                "errors": sr.errors,
+                "duration_s": sr.duration_seconds,
+            }
+        )
+    )
 
 
 async def seed_test_data():
@@ -186,42 +248,65 @@ async def async_main():
         parser.print_help()
         sys.exit(1)
 
+    stage_results: list[StageResult] = []
+
     if args.seed or args.all:
         logger.info("Seeding test data...")
-        await seed_test_data()
+        sr = await run_stage("seed", seed_test_data())
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.crawl_247 or args.all:
         logger.info("Crawling 247Sports...")
         crawler = Two47Crawler(teams=args.teams, years=args.years)
-        result = await crawler.crawl()
-        logger.info(f"247 crawl complete: {result.records_new} new records")
+        sr = await run_stage("crawl-247", crawler.crawl())
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.process or args.all:
         logger.info("Processing reports...")
-        result = await process_reports(batch_size=args.batch_size)
-        logger.info(f"Processing complete: {result['processed']}/{result['total']} reports")
+        sr = await run_stage("process", process_reports(batch_size=args.batch_size))
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.link or args.all:
         logger.info("Running entity linking...")
-        result = await run_entity_linking(batch_size=args.batch_size)
-        logger.info(f"Entity linking complete: {result['players_linked']} players linked")
+        sr = await run_stage("link", run_entity_linking(batch_size=args.batch_size))
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.grade or args.all:
         logger.info("Running grading pipeline...")
-        result = await run_grading_pipeline(batch_size=args.batch_size)
-        logger.info(f"Grading complete: {result['players_updated']} players updated")
+        sr = await run_stage("grade", run_grading_pipeline(batch_size=args.batch_size))
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.evaluate_alerts or args.all:
         logger.info("Evaluating alerts...")
-        result = await run_alert_check()
-        logger.info(
-            f"Alert check complete: {result['alerts_fired']} alerts fired"
-            f" for {result['players_checked']} players"
-        )
+        sr = await run_stage("evaluate-alerts", run_alert_check())
+        stage_results.append(sr)
+        _log_stage(sr)
 
     if args.review_links:
         logger.info("Starting pending links review...")
         await review_pending_links()
+
+    # Pipeline summary
+    if stage_results:
+        total_time = sum(sr.duration_seconds for sr in stage_results)
+        failed = sum(1 for sr in stage_results if sr.status == "error")
+        logger.info(
+            json.dumps(
+                {
+                    "pipeline_summary": True,
+                    "stages_run": len(stage_results),
+                    "stages_failed": failed,
+                    "total_duration_s": round(total_time, 2),
+                }
+            )
+        )
+        if failed > 0:
+            sys.exit(1)
 
 
 def main():
