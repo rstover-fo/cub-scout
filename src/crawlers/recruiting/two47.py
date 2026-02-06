@@ -174,16 +174,14 @@ class Two47Crawler(BaseCrawler):
 
         return self._parse_commits_page(html)
 
-    def crawl(self) -> CrawlResult:
+    async def crawl(self) -> CrawlResult:
         """Crawl all configured teams/years."""
         started = self.log_start()
         errors = []
         records_crawled = 0
         records_new = 0
 
-        conn = get_connection()
-
-        try:
+        async with get_connection() as conn:
             for team in self.teams:
                 for year in self.years:
                     commits = self.crawl_team_commits(team, year)
@@ -210,7 +208,7 @@ class Two47Crawler(BaseCrawler):
                                 else f"{build_team_commits_url(team, year)}#{commit.name}"
                             )
 
-                            report_id = insert_report(
+                            report_id = await insert_report(
                                 conn,
                                 source_url=source_url,
                                 source_name=self.source_name,
@@ -225,8 +223,6 @@ class Two47Crawler(BaseCrawler):
                             errors.append(f"Error storing {commit.name}: {e}")
                             logger.warning(f"Error storing commit: {e}")
 
-        finally:
-            conn.close()
             if self._client:
                 self._client.close()
 

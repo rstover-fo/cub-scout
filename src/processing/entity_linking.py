@@ -13,7 +13,7 @@ from .player_matching import match_player_with_review
 logger = logging.getLogger(__name__)
 
 
-def link_report_entities(
+async def link_report_entities(
     report: dict,
     use_claude: bool = False,
 ) -> list[int]:
@@ -26,10 +26,9 @@ def link_report_entities(
     Returns:
         List of scouting.players IDs that were linked.
     """
-    conn = get_connection()
-    linked_player_ids = []
+    async with get_connection() as conn:
+        linked_player_ids = []
 
-    try:
         # Extract player mentions
         if use_claude:
             mentions = extract_player_mentions_claude(report["raw_text"])
@@ -43,7 +42,7 @@ def link_report_entities(
 
         for name, position, team in names:
             # Try to find existing roster/recruit match
-            match, pending_link_id = match_player_with_review(
+            match, pending_link_id = await match_player_with_review(
                 name,
                 team=team or default_team,
                 position=position,
@@ -60,7 +59,7 @@ def link_report_entities(
 
             if match:
                 # Create/update scouting player linked to roster/recruit
-                player_id = upsert_scouting_player(
+                player_id = await upsert_scouting_player(
                     conn,
                     name=f"{match.first_name} {match.last_name}",
                     team=match.team,
@@ -72,7 +71,7 @@ def link_report_entities(
                 )
             else:
                 # Create scouting player without link (new mention)
-                player_id = upsert_scouting_player(
+                player_id = await upsert_scouting_player(
                     conn,
                     name=name,
                     team=team or default_team or "Unknown",
@@ -82,17 +81,14 @@ def link_report_entities(
                 )
 
             # Link report to player
-            link_report_to_player(conn, report["id"], player_id)
+            await link_report_to_player(conn, report["id"], player_id)
             linked_player_ids.append(player_id)
             logger.debug(f"Linked player {player_id} ({name}) to report {report['id']}")
 
         return linked_player_ids
 
-    finally:
-        conn.close()
 
-
-def run_entity_linking(
+async def run_entity_linking(
     batch_size: int = 50,
     use_claude: bool = False,
 ) -> dict:
@@ -105,12 +101,10 @@ def run_entity_linking(
     Returns:
         Stats dict.
     """
-    conn = get_connection()
-
-    try:
+    async with get_connection() as conn:
         # Get reports that are processed but have no player links
         cur = conn.cursor()
-        cur.execute(
+        await cur.execute(
             """
             SELECT id, source_url, source_name, content_type, raw_text, team_ids
             FROM scouting.reports
@@ -122,10 +116,7 @@ def run_entity_linking(
             (batch_size,),
         )
         columns = [desc[0] for desc in cur.description]
-        reports = [dict(zip(columns, row)) for row in cur.fetchall()]
-
-    finally:
-        conn.close()
+        reports = [dict(zip(columns, row)) for row in await cur.fetchall()]
 
     logger.info(f"Found {len(reports)} reports needing entity linking")
 
@@ -135,7 +126,7 @@ def run_entity_linking(
 
     for report in reports:
         try:
-            player_ids = link_report_entities(report, use_claude=use_claude)
+            player_ids = await link_report_entities(report, use_claude=use_claude)
             total_players += len(player_ids)
             linked += 1
         except Exception as e:

@@ -7,10 +7,10 @@ Usage:
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import sys
-import time
 from pathlib import Path
 
 # Add src to path
@@ -34,14 +34,14 @@ REQUESTS_PER_MINUTE = 2500
 DELAY_BETWEEN_BATCHES = 60 / (REQUESTS_PER_MINUTE / 100)  # seconds
 
 
-def get_roster_players_without_embeddings(
+async def get_roster_players_without_embeddings(
     conn,
     year: int,
     limit: int = 1000,
 ) -> list[dict]:
     """Get roster players that don't have embeddings yet."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT
             r.id,
@@ -60,10 +60,11 @@ def get_roster_players_without_embeddings(
         (year, limit),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def backfill_embeddings(
+async def backfill_embeddings(
     year: int,
     batch_size: int = 100,
     dry_run: bool = False,
@@ -80,11 +81,9 @@ def backfill_embeddings(
     """
     stats = {"processed": 0, "skipped": 0, "errors": 0}
 
-    conn = get_connection()
-
-    try:
+    async with get_connection() as conn:
         while True:
-            players = get_roster_players_without_embeddings(conn, year, batch_size)
+            players = await get_roster_players_without_embeddings(conn, year, batch_size)
 
             if not players:
                 logger.info("No more players to process")
@@ -114,7 +113,7 @@ def backfill_embeddings(
                     result = generate_embedding(identity_text)
 
                     # Store in database
-                    upsert_player_embedding(
+                    await upsert_player_embedding(
                         conn=conn,
                         roster_id=str(player["id"]),
                         identity_text=result.identity_text,
@@ -138,15 +137,12 @@ def backfill_embeddings(
             # Rate limiting between batches
             if len(players) == batch_size:
                 logger.info(f"Sleeping {DELAY_BETWEEN_BATCHES:.1f}s for rate limiting")
-                time.sleep(DELAY_BETWEEN_BATCHES)
-
-    finally:
-        conn.close()
+                await asyncio.sleep(DELAY_BETWEEN_BATCHES)
 
     return stats
 
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Backfill player embeddings")
     parser.add_argument("--year", type=int, default=2025, help="Roster year")
     parser.add_argument("--batch-size", type=int, default=100, help="Batch size")
@@ -158,13 +154,17 @@ def main():
         sys.exit(1)
 
     logger.info(f"Starting backfill for year {args.year}")
-    stats = backfill_embeddings(
+    stats = await backfill_embeddings(
         year=args.year,
         batch_size=args.batch_size,
         dry_run=args.dry_run,
     )
 
     logger.info(f"Completed: {stats}")
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

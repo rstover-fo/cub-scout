@@ -87,7 +87,7 @@ def get_projection(draft_score: float) -> DraftProjection:
         return DraftProjection.UDFA
 
 
-def build_draft_board(
+async def build_draft_board(
     class_year: int | None = None,
     position: str | None = None,
     limit: int = 100,
@@ -102,10 +102,9 @@ def build_draft_board(
     Returns:
         List of DraftPlayer sorted by draft score
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
         query = """
             SELECT id, name, position, team, class_year,
                    composite_grade, current_status
@@ -125,18 +124,18 @@ def build_draft_board(
         query += " ORDER BY composite_grade DESC NULLS LAST LIMIT %s"
         params.append(limit * 2)  # Get extra for filtering
 
-        cur.execute(query, params)
+        await cur.execute(query, params)
 
         players = []
-        for row in cur.fetchall():
+        for row in await cur.fetchall():
             player_id, name, pos, team, year, grade, status = row
 
             # Get PFF grade
-            pff_grades = get_player_pff_grades(conn, player_id)
+            pff_grades = await get_player_pff_grades(conn, player_id)
             pff_grade = float(pff_grades[0]["overall_grade"]) if pff_grades else None
 
             # Get trend
-            trend = analyze_player_trend(player_id, days=90)
+            trend = await analyze_player_trend(player_id, days=90)
 
             draft_score = calculate_draft_score(
                 composite_grade=grade,
@@ -165,23 +164,18 @@ def build_draft_board(
         players.sort(key=lambda x: x.draft_score, reverse=True)
         return players[:limit]
 
-    finally:
-        cur.close()
-        conn.close()
 
-
-def get_position_rankings(position: str, limit: int = 25) -> list[DraftPlayer]:
+async def get_position_rankings(position: str, limit: int = 25) -> list[DraftPlayer]:
     """Get draft rankings for a specific position."""
-    return build_draft_board(position=position, limit=limit)
+    return await build_draft_board(position=position, limit=limit)
 
 
-def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
+async def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
     """Get draft-eligible players for a team."""
-    conn = get_connection()
-    cur = conn.cursor()
+    async with get_connection() as conn:
+        cur = conn.cursor()
 
-    try:
-        cur.execute(
+        await cur.execute(
             """
             SELECT id, name, position, team, class_year,
                    composite_grade, current_status
@@ -194,13 +188,13 @@ def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
         )
 
         players = []
-        for row in cur.fetchall():
+        for row in await cur.fetchall():
             player_id, name, pos, team_name, year, grade, status = row
 
-            pff_grades = get_player_pff_grades(conn, player_id)
+            pff_grades = await get_player_pff_grades(conn, player_id)
             pff_grade = float(pff_grades[0]["overall_grade"]) if pff_grades else None
 
-            trend = analyze_player_trend(player_id, days=90)
+            trend = await analyze_player_trend(player_id, days=90)
 
             draft_score = calculate_draft_score(
                 composite_grade=grade,
@@ -225,7 +219,3 @@ def get_team_draft_prospects(team: str) -> list[DraftPlayer]:
 
         players.sort(key=lambda x: x.draft_score, reverse=True)
         return players
-
-    finally:
-        cur.close()
-        conn.close()

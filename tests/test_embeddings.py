@@ -65,7 +65,7 @@ def test_generate_embedding_calls_openai(mock_openai):
 # Database function tests
 
 
-def test_upsert_player_embedding_new(mock_db_connection):
+async def test_upsert_player_embedding_new(mock_db_connection):
     """Test inserting a new player embedding."""
     from src.storage.db import upsert_player_embedding
 
@@ -73,7 +73,7 @@ def test_upsert_player_embedding_new(mock_db_connection):
     test_roster_id = "test_embed_12345"
 
     try:
-        embedding_id = upsert_player_embedding(
+        embedding_id = await upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_roster_id,
             identity_text="Arch Manning | QB | Texas | 2024",
@@ -84,42 +84,42 @@ def test_upsert_player_embedding_new(mock_db_connection):
     finally:
         # Clean up test data
         cur = mock_db_connection.cursor()
-        cur.execute(
+        await cur.execute(
             "DELETE FROM scouting.player_embeddings WHERE roster_id = %s",
             (test_roster_id,),
         )
-        mock_db_connection.commit()
+        await mock_db_connection.commit()
 
 
-def test_get_player_embedding(mock_db_connection):
+async def test_get_player_embedding(mock_db_connection):
     """Test retrieving a player embedding by roster_id."""
     from src.storage.db import get_player_embedding, upsert_player_embedding
 
     test_roster_id = "test_embed_67890"
 
     try:
-        upsert_player_embedding(
+        await upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_roster_id,
             identity_text="Arch Manning | QB | Texas | 2024",
             embedding=[0.1] * 1536,
         )
 
-        result = get_player_embedding(mock_db_connection, roster_id=test_roster_id)
+        result = await get_player_embedding(mock_db_connection, roster_id=test_roster_id)
 
         assert result is not None
         assert result["roster_id"] == test_roster_id
         assert result["identity_text"] == "Arch Manning | QB | Texas | 2024"
     finally:
         cur = mock_db_connection.cursor()
-        cur.execute(
+        await cur.execute(
             "DELETE FROM scouting.player_embeddings WHERE roster_id = %s",
             (test_roster_id,),
         )
-        mock_db_connection.commit()
+        await mock_db_connection.commit()
 
 
-def test_find_similar_by_embedding(mock_db_connection):
+async def test_find_similar_by_embedding(mock_db_connection):
     """Test finding similar players by embedding vector."""
     from src.storage.db import find_similar_by_embedding, upsert_player_embedding
 
@@ -133,19 +133,19 @@ def test_find_similar_by_embedding(mock_db_connection):
 
     try:
         # Insert a few players
-        upsert_player_embedding(
+        await upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[0],
             identity_text="Player One | QB | Texas | 2024",
             embedding=base_embedding,
         )
-        upsert_player_embedding(
+        await upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[1],
             identity_text="Player Two | QB | Texas | 2024",
             embedding=similar_embedding,  # Similar direction
         )
-        upsert_player_embedding(
+        await upsert_player_embedding(
             conn=mock_db_connection,
             roster_id=test_ids[2],
             identity_text="Player Three | RB | Alabama | 2024",
@@ -153,7 +153,7 @@ def test_find_similar_by_embedding(mock_db_connection):
         )
 
         # Search for similar to first player
-        results = find_similar_by_embedding(
+        results = await find_similar_by_embedding(
             conn=mock_db_connection,
             embedding=base_embedding,
             limit=2,
@@ -166,8 +166,8 @@ def test_find_similar_by_embedding(mock_db_connection):
     finally:
         cur = mock_db_connection.cursor()
         for roster_id in test_ids:
-            cur.execute(
+            await cur.execute(
                 "DELETE FROM scouting.player_embeddings WHERE roster_id = %s",
                 (roster_id,),
             )
-        mock_db_connection.commit()
+        await mock_db_connection.commit()

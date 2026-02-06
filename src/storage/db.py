@@ -1,117 +1,73 @@
 """Database connection and operations for CFB Scout."""
 
+import json
 import logging
 import os
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import date
 
-import psycopg2
-from psycopg2.extensions import connection
-from psycopg2.pool import ThreadedConnectionPool
+import psycopg
+from psycopg_pool import AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
 
-_pool: ThreadedConnectionPool | None = None
-_pool_lock = threading.Lock()
+_pool: AsyncConnectionPool | None = None
 
 MIN_POOL_CONNECTIONS = 2
 MAX_POOL_CONNECTIONS = 10
 
 
-class PooledConnection:
-    """Wraps a psycopg2 connection so .close() returns it to the pool."""
-
-    def __init__(self, conn: connection, pool: ThreadedConnectionPool) -> None:
-        self._conn = conn
-        self._pool = pool
-
-    def close(self) -> None:
-        """Return connection to pool instead of closing it."""
-        try:
-            if self._conn.closed:
-                return
-            # Roll back any uncommitted transaction before returning to pool
-            if self._conn.status != psycopg2.extensions.STATUS_READY:
-                self._conn.rollback()
-            self._pool.putconn(self._conn)
-        except Exception:
-            logger.warning("Failed to return connection to pool, discarding", exc_info=True)
-            try:
-                self._conn.close()
-            except Exception:
-                pass
-
-    def __getattr__(self, name: str):
-        return getattr(self._conn, name)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.close()
-
-
-def init_pool(
+async def init_pool(
     min_conn: int = MIN_POOL_CONNECTIONS,
     max_conn: int = MAX_POOL_CONNECTIONS,
 ) -> None:
-    """Initialize the connection pool. Safe to call multiple times."""
+    """Initialize the async connection pool. Safe to call multiple times."""
     global _pool
-    with _pool_lock:
-        if _pool is not None:
-            return
-        database_url = os.environ.get("DATABASE_URL")
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable not set")
-        _pool = ThreadedConnectionPool(min_conn, max_conn, database_url)
-        logger.info("Connection pool initialized (min=%d, max=%d)", min_conn, max_conn)
+    if _pool is not None:
+        return
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable not set")
+    _pool = AsyncConnectionPool(
+        conninfo=database_url,
+        min_size=min_conn,
+        max_size=max_conn,
+        open=False,
+    )
+    await _pool.open()
+    logger.info("Async connection pool initialized (min=%d, max=%d)", min_conn, max_conn)
 
 
-def close_pool() -> None:
+async def close_pool() -> None:
     """Close all connections in the pool."""
     global _pool
-    with _pool_lock:
-        if _pool is not None:
-            _pool.closeall()
-            _pool = None
-            logger.info("Connection pool closed")
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+        logger.info("Async connection pool closed")
 
 
-def get_connection() -> PooledConnection:
-    """Get a database connection from the pool.
+@asynccontextmanager
+async def get_connection() -> AsyncIterator[psycopg.AsyncConnection]:
+    """Async context manager that yields a connection from the pool.
 
     Lazily initializes the pool on first call.
-    Returns a PooledConnection whose .close() returns the conn to the pool.
     """
     global _pool
     if _pool is None:
-        init_pool()
-    try:
-        conn = _pool.getconn()
-    except Exception:
-        # Pool may have been closed or exhausted; try reinitializing once
-        logger.warning("Pool getconn failed, reinitializing", exc_info=True)
-        with _pool_lock:
-            _pool = None
-        init_pool()
-        conn = _pool.getconn()
-    return PooledConnection(conn, _pool)
-
-
-@contextmanager
-def get_db() -> Iterator[PooledConnection]:
-    """Context manager for database connections."""
-    conn = get_connection()
-    try:
+        await init_pool()
+    async with _pool.connection() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
-def insert_report(
-    conn: connection,
+# ---------------------------------------------------------------------------
+# Data functions
+# ---------------------------------------------------------------------------
+
+
+async def insert_report(
+    conn: psycopg.AsyncConnection,
     source_url: str,
     source_name: str,
     content_type: str,
@@ -125,7 +81,7 @@ def insert_report(
     Uses ON CONFLICT to handle duplicates (same URL).
     """
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.reports
             (source_url, source_name, content_type, raw_text, player_ids, team_ids, published_at)
@@ -145,15 +101,16 @@ def insert_report(
             published_at,
         ),
     )
-    report_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    report_id = row[0]
+    await conn.commit()
     return report_id
 
 
-def get_unprocessed_reports(conn: connection, limit: int = 100) -> list[dict]:
+async def get_unprocessed_reports(conn: psycopg.AsyncConnection, limit: int = 100) -> list[dict]:
     """Get reports that haven't been processed yet."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, source_url, source_name, content_type, raw_text, player_ids, team_ids
         FROM scouting.reports
@@ -164,11 +121,12 @@ def get_unprocessed_reports(conn: connection, limit: int = 100) -> list[dict]:
         (limit,),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def mark_report_processed(
-    conn: connection,
+async def mark_report_processed(
+    conn: psycopg.AsyncConnection,
     report_id: int,
     summary: str | None = None,
     sentiment_score: float | None = None,
@@ -177,7 +135,7 @@ def mark_report_processed(
 ) -> None:
     """Mark a report as processed with optional extracted data."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         UPDATE scouting.reports
         SET processed_at = NOW(),
@@ -189,11 +147,11 @@ def mark_report_processed(
         """,
         (summary, sentiment_score, player_ids, team_ids, report_id),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def upsert_scouting_player(
-    conn: connection,
+async def upsert_scouting_player(
+    conn: psycopg.AsyncConnection,
     name: str,
     team: str,
     position: str | None = None,
@@ -210,10 +168,8 @@ def upsert_scouting_player(
 
     Uses (name, team, class_year) as the unique key.
     """
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.players
             (name, team, position, class_year, current_status,
@@ -248,15 +204,16 @@ def upsert_scouting_player(
             comps or [],
         ),
     )
-    player_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    player_id = row[0]
+    await conn.commit()
     return player_id
 
 
-def get_scouting_player(conn: connection, player_id: int) -> dict | None:
+async def get_scouting_player(conn: psycopg.AsyncConnection, player_id: int) -> dict | None:
     """Get a scouting player by ID."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, name, team, position, class_year, current_status,
                roster_player_id, recruit_id, composite_grade, traits,
@@ -266,7 +223,7 @@ def get_scouting_player(conn: connection, player_id: int) -> dict | None:
         """,
         (player_id,),
     )
-    row = cur.fetchone()
+    row = await cur.fetchone()
     if not row:
         return None
 
@@ -274,14 +231,14 @@ def get_scouting_player(conn: connection, player_id: int) -> dict | None:
     return dict(zip(columns, row))
 
 
-def link_report_to_player(
-    conn: connection,
+async def link_report_to_player(
+    conn: psycopg.AsyncConnection,
     report_id: int,
     player_id: int,
 ) -> None:
     """Link a report to a scouting player by adding to player_ids array."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         UPDATE scouting.reports
         SET player_ids = array_append(
@@ -293,11 +250,11 @@ def link_report_to_player(
         """,
         (player_id, report_id, player_id),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def insert_timeline_snapshot(
-    conn: connection,
+async def insert_timeline_snapshot(
+    conn: psycopg.AsyncConnection,
     player_id: int,
     snapshot_date: date,
     status: str | None = None,
@@ -308,10 +265,8 @@ def insert_timeline_snapshot(
     sources_count: int | None = None,
 ) -> int:
     """Insert a player timeline snapshot."""
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.player_timeline
             (player_id, snapshot_date, status, sentiment_score,
@@ -330,19 +285,20 @@ def insert_timeline_snapshot(
             sources_count or 0,
         ),
     )
-    snapshot_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    snapshot_id = row[0]
+    await conn.commit()
     return snapshot_id
 
 
-def get_player_timeline(
-    conn: connection,
+async def get_player_timeline(
+    conn: psycopg.AsyncConnection,
     player_id: int,
     limit: int = 30,
 ) -> list[dict]:
     """Get timeline snapshots for a player, newest first."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, player_id, snapshot_date, status, sentiment_score,
                grade_at_time, traits_at_time, key_narratives, sources_count
@@ -354,11 +310,12 @@ def get_player_timeline(
         (player_id, limit),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def upsert_pff_grade(
-    conn: connection,
+async def upsert_pff_grade(
+    conn: psycopg.AsyncConnection,
     player_id: int,
     pff_player_id: str,
     season: int,
@@ -368,10 +325,8 @@ def upsert_pff_grade(
     week: int | None = None,
 ) -> int:
     """Upsert a PFF grade for a player."""
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.pff_grades
             (player_id, pff_player_id, season, week, overall_grade, position_grades, snaps)
@@ -393,13 +348,14 @@ def upsert_pff_grade(
             snaps,
         ),
     )
-    grade_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    grade_id = row[0]
+    await conn.commit()
     return grade_id
 
 
-def get_player_pff_grades(
-    conn: connection,
+async def get_player_pff_grades(
+    conn: psycopg.AsyncConnection,
     player_id: int,
     season: int | None = None,
 ) -> list[dict]:
@@ -420,20 +376,21 @@ def get_player_pff_grades(
 
     query += " ORDER BY season DESC, week DESC NULLS FIRST"
 
-    cur.execute(query, params)
+    await cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def create_watch_list(
-    conn: connection,
+async def create_watch_list(
+    conn: psycopg.AsyncConnection,
     user_id: str,
     name: str,
     description: str | None = None,
 ) -> int:
     """Create a new watch list."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.watch_lists (user_id, name, description)
         VALUES (%s, %s, %s)
@@ -441,18 +398,19 @@ def create_watch_list(
         """,
         (user_id, name, description),
     )
-    list_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    list_id = row[0]
+    await conn.commit()
     return list_id
 
 
-def get_watch_lists(
-    conn: connection,
+async def get_watch_lists(
+    conn: psycopg.AsyncConnection,
     user_id: str,
 ) -> list[dict]:
     """Get all watch lists for a user."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, name, description, player_ids, created_at, updated_at
         FROM scouting.watch_lists
@@ -462,16 +420,17 @@ def get_watch_lists(
         (user_id,),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def get_watch_list(
-    conn: connection,
+async def get_watch_list(
+    conn: psycopg.AsyncConnection,
     list_id: int,
 ) -> dict | None:
     """Get a specific watch list."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, user_id, name, description, player_ids, created_at, updated_at
         FROM scouting.watch_lists
@@ -479,21 +438,21 @@ def get_watch_list(
         """,
         (list_id,),
     )
-    row = cur.fetchone()
+    row = await cur.fetchone()
     if not row:
         return None
     columns = [desc[0] for desc in cur.description]
     return dict(zip(columns, row))
 
 
-def add_to_watch_list(
-    conn: connection,
+async def add_to_watch_list(
+    conn: psycopg.AsyncConnection,
     list_id: int,
     player_id: int,
 ) -> None:
     """Add a player to a watch list."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         UPDATE scouting.watch_lists
         SET player_ids = array_append(
@@ -506,17 +465,17 @@ def add_to_watch_list(
         """,
         (player_id, list_id, player_id),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def remove_from_watch_list(
-    conn: connection,
+async def remove_from_watch_list(
+    conn: psycopg.AsyncConnection,
     list_id: int,
     player_id: int,
 ) -> None:
     """Remove a player from a watch list."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         UPDATE scouting.watch_lists
         SET player_ids = array_remove(player_ids, %s),
@@ -525,24 +484,24 @@ def remove_from_watch_list(
         """,
         (player_id, list_id),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def delete_watch_list(
-    conn: connection,
+async def delete_watch_list(
+    conn: psycopg.AsyncConnection,
     list_id: int,
 ) -> None:
     """Delete a watch list."""
     cur = conn.cursor()
-    cur.execute("DELETE FROM scouting.watch_lists WHERE id = %s", (list_id,))
-    conn.commit()
+    await cur.execute("DELETE FROM scouting.watch_lists WHERE id = %s", (list_id,))
+    await conn.commit()
 
 
 # Alert functions
 
 
-def create_alert(
-    conn: connection,
+async def create_alert(
+    conn: psycopg.AsyncConnection,
     user_id: str,
     name: str,
     alert_type: str,
@@ -551,10 +510,8 @@ def create_alert(
     threshold: dict | None = None,
 ) -> int:
     """Create a new alert rule."""
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.alerts (user_id, name, alert_type, player_id, team, threshold)
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -562,13 +519,14 @@ def create_alert(
         """,
         (user_id, name, alert_type, player_id, team, json.dumps(threshold) if threshold else None),
     )
-    alert_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    alert_id = row[0]
+    await conn.commit()
     return alert_id
 
 
-def get_user_alerts(
-    conn: connection,
+async def get_user_alerts(
+    conn: psycopg.AsyncConnection,
     user_id: str,
     active_only: bool = True,
 ) -> list[dict]:
@@ -588,15 +546,16 @@ def get_user_alerts(
 
     query += " ORDER BY created_at DESC"
 
-    cur.execute(query, params)
+    await cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def get_alert(conn: connection, alert_id: int) -> dict | None:
+async def get_alert(conn: psycopg.AsyncConnection, alert_id: int) -> dict | None:
     """Get a specific alert."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, user_id, name, alert_type, player_id, team, threshold,
                is_active, created_at, last_checked_at
@@ -605,51 +564,49 @@ def get_alert(conn: connection, alert_id: int) -> dict | None:
         """,
         (alert_id,),
     )
-    row = cur.fetchone()
+    row = await cur.fetchone()
     if not row:
         return None
     columns = [desc[0] for desc in cur.description]
     return dict(zip(columns, row))
 
 
-def update_alert_checked(conn: connection, alert_id: int) -> None:
+async def update_alert_checked(conn: psycopg.AsyncConnection, alert_id: int) -> None:
     """Update last_checked_at timestamp."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         "UPDATE scouting.alerts SET last_checked_at = NOW() WHERE id = %s",
         (alert_id,),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def deactivate_alert(conn: connection, alert_id: int) -> None:
+async def deactivate_alert(conn: psycopg.AsyncConnection, alert_id: int) -> None:
     """Deactivate an alert."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         "UPDATE scouting.alerts SET is_active = FALSE WHERE id = %s",
         (alert_id,),
     )
-    conn.commit()
+    await conn.commit()
 
 
-def delete_alert(conn: connection, alert_id: int) -> None:
+async def delete_alert(conn: psycopg.AsyncConnection, alert_id: int) -> None:
     """Delete an alert and its history."""
     cur = conn.cursor()
-    cur.execute("DELETE FROM scouting.alerts WHERE id = %s", (alert_id,))
-    conn.commit()
+    await cur.execute("DELETE FROM scouting.alerts WHERE id = %s", (alert_id,))
+    await conn.commit()
 
 
-def fire_alert(
-    conn: connection,
+async def fire_alert(
+    conn: psycopg.AsyncConnection,
     alert_id: int,
     trigger_data: dict,
     message: str,
 ) -> int:
     """Record a fired alert."""
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.alert_history (alert_id, trigger_data, message)
         VALUES (%s, %s, %s)
@@ -657,15 +614,16 @@ def fire_alert(
         """,
         (alert_id, json.dumps(trigger_data), message),
     )
-    history_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    history_id = row[0]
+    await conn.commit()
     return history_id
 
 
-def get_unread_alerts(conn: connection, user_id: str) -> list[dict]:
+async def get_unread_alerts(conn: psycopg.AsyncConnection, user_id: str) -> list[dict]:
     """Get unread alert history for a user."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT h.id, h.alert_id, h.fired_at, h.trigger_data, h.message, h.is_read,
                a.name as alert_name, a.alert_type
@@ -677,24 +635,25 @@ def get_unread_alerts(conn: connection, user_id: str) -> list[dict]:
         (user_id,),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def mark_alert_read(conn: connection, history_id: int) -> None:
+async def mark_alert_read(conn: psycopg.AsyncConnection, history_id: int) -> None:
     """Mark an alert history entry as read."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         "UPDATE scouting.alert_history SET is_read = TRUE WHERE id = %s",
         (history_id,),
     )
-    conn.commit()
+    await conn.commit()
 
 
 # Transfer portal functions
 
 
-def insert_transfer_event(
-    conn: connection,
+async def insert_transfer_event(
+    conn: psycopg.AsyncConnection,
     player_id: int,
     event_type: str,
     from_team: str | None = None,
@@ -707,7 +666,7 @@ def insert_transfer_event(
     from datetime import date as date_type
 
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.transfer_events
             (player_id, event_type, from_team, to_team, event_date, source_url, notes)
@@ -728,18 +687,19 @@ def insert_transfer_event(
             notes,
         ),
     )
-    event_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    event_id = row[0]
+    await conn.commit()
     return event_id
 
 
-def get_player_transfer_history(
-    conn: connection,
+async def get_player_transfer_history(
+    conn: psycopg.AsyncConnection,
     player_id: int,
 ) -> list[dict]:
     """Get transfer history for a player."""
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, player_id, event_type, from_team, to_team,
                event_date, source_url, notes, created_at
@@ -750,11 +710,12 @@ def get_player_transfer_history(
         (player_id,),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def get_active_portal_players(
-    conn: connection,
+async def get_active_portal_players(
+    conn: psycopg.AsyncConnection,
     position: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
@@ -787,20 +748,21 @@ def get_active_portal_players(
     query += " ORDER BY p.id, te.event_date DESC LIMIT %s"
     params.append(limit)
 
-    cur.execute(query, params)
+    await cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def get_team_transfer_activity(
-    conn: connection,
+async def get_team_transfer_activity(
+    conn: psycopg.AsyncConnection,
     team: str,
 ) -> dict:
     """Get transfer activity for a team (incoming and outgoing)."""
     cur = conn.cursor()
 
     # Outgoing (players who left)
-    cur.execute(
+    await cur.execute(
         """
         SELECT p.id, p.name, p.position, te.event_date, te.to_team
         FROM scouting.transfer_events te
@@ -811,10 +773,11 @@ def get_team_transfer_activity(
         (team,),
     )
     columns = [desc[0] for desc in cur.description]
-    outgoing = [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    outgoing = [dict(zip(columns, row)) for row in rows]
 
     # Incoming (players who committed)
-    cur.execute(
+    await cur.execute(
         """
         SELECT p.id, p.name, p.position, te.event_date, te.from_team
         FROM scouting.transfer_events te
@@ -825,7 +788,8 @@ def get_team_transfer_activity(
         (team,),
     )
     columns = [desc[0] for desc in cur.description]
-    incoming = [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    incoming = [dict(zip(columns, row)) for row in rows]
 
     return {
         "team": team,
@@ -835,8 +799,8 @@ def get_team_transfer_activity(
     }
 
 
-def insert_portal_snapshot(
-    conn: connection,
+async def insert_portal_snapshot(
+    conn: psycopg.AsyncConnection,
     snapshot_date: date,
     total_in_portal: int,
     by_position: dict | None = None,
@@ -844,10 +808,8 @@ def insert_portal_snapshot(
     notable_entries: list[str] | None = None,
 ) -> int:
     """Insert a daily portal snapshot."""
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.portal_snapshots
             (snapshot_date, total_in_portal, by_position, by_conference, notable_entries)
@@ -867,16 +829,17 @@ def insert_portal_snapshot(
             notable_entries or [],
         ),
     )
-    snapshot_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    snapshot_id = row[0]
+    await conn.commit()
     return snapshot_id
 
 
 # Embedding functions
 
 
-def upsert_player_embedding(
-    conn: connection,
+async def upsert_player_embedding(
+    conn: psycopg.AsyncConnection,
     roster_id: str,
     identity_text: str,
     embedding: list[float],
@@ -893,7 +856,7 @@ def upsert_player_embedding(
         The embedding record ID
     """
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.player_embeddings (roster_id, identity_text, embedding)
         VALUES (%s, %s, %s)
@@ -905,13 +868,14 @@ def upsert_player_embedding(
         """,
         (roster_id, identity_text, embedding),
     )
-    embedding_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    embedding_id = row[0]
+    await conn.commit()
     return embedding_id
 
 
-def get_player_embedding(
-    conn: connection,
+async def get_player_embedding(
+    conn: psycopg.AsyncConnection,
     roster_id: str,
 ) -> dict | None:
     """Get embedding for a roster player.
@@ -924,7 +888,7 @@ def get_player_embedding(
         Dict with id, roster_id, identity_text, created_at or None
     """
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, roster_id, identity_text, created_at
         FROM scouting.player_embeddings
@@ -932,7 +896,7 @@ def get_player_embedding(
         """,
         (roster_id,),
     )
-    row = cur.fetchone()
+    row = await cur.fetchone()
     if not row:
         return None
 
@@ -940,8 +904,8 @@ def get_player_embedding(
     return dict(zip(columns, row))
 
 
-def find_similar_by_embedding(
-    conn: connection,
+async def find_similar_by_embedding(
+    conn: psycopg.AsyncConnection,
     embedding: list[float],
     limit: int = 10,
     exclude_roster_id: str | None = None,
@@ -978,13 +942,14 @@ def find_similar_by_embedding(
     query += " ORDER BY embedding <=> %s::vector LIMIT %s"
     params.extend([embedding, limit])
 
-    cur.execute(query, params)
+    await cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def insert_pending_link(
-    conn: connection,
+async def insert_pending_link(
+    conn: psycopg.AsyncConnection,
     source_name: str,
     source_team: str | None,
     source_context: dict | None,
@@ -1006,10 +971,8 @@ def insert_pending_link(
     Returns:
         The pending link ID
     """
-    import json
-
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         INSERT INTO scouting.pending_links
             (source_name, source_team, source_context, candidate_roster_id,
@@ -1026,13 +989,14 @@ def insert_pending_link(
             match_method,
         ),
     )
-    link_id = cur.fetchone()[0]
-    conn.commit()
+    row = await cur.fetchone()
+    link_id = row[0]
+    await conn.commit()
     return link_id
 
 
-def get_pending_links(
-    conn: connection,
+async def get_pending_links(
+    conn: psycopg.AsyncConnection,
     status: str = "pending",
     limit: int = 100,
 ) -> list[dict]:
@@ -1047,7 +1011,7 @@ def get_pending_links(
         List of pending link dicts
     """
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         SELECT id, source_name, source_team, source_context,
                candidate_roster_id, match_score, match_method,
@@ -1060,11 +1024,12 @@ def get_pending_links(
         (status, limit),
     )
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    rows = await cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
 
 
-def update_pending_link_status(
-    conn: connection,
+async def update_pending_link_status(
+    conn: psycopg.AsyncConnection,
     link_id: int,
     status: str,
 ) -> None:
@@ -1076,7 +1041,7 @@ def update_pending_link_status(
         status: New status ('approved' or 'rejected')
     """
     cur = conn.cursor()
-    cur.execute(
+    await cur.execute(
         """
         UPDATE scouting.pending_links
         SET status = %s, reviewed_at = NOW()
@@ -1084,4 +1049,4 @@ def update_pending_link_status(
         """,
         (status, link_id),
     )
-    conn.commit()
+    await conn.commit()
