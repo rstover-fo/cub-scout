@@ -128,9 +128,7 @@ def mock_openai():
     Patches the lazy _get_client in embeddings.py.
     """
     mock_client = MagicMock()
-    mock_client.embeddings.create = AsyncMock(
-        return_value=_make_openai_embedding_response()
-    )
+    mock_client.embeddings.create = AsyncMock(return_value=_make_openai_embedding_response())
 
     with patch("src.processing.embeddings._get_client", return_value=mock_client):
         yield mock_client
