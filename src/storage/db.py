@@ -2,28 +2,25 @@
 
 import logging
 import os
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
 
-import psycopg2
-from psycopg2.extensions import connection
-from psycopg2.pool import ThreadedConnectionPool
+import psycopg
+from psycopg_pool import ConnectionPool
 
 logger = logging.getLogger(__name__)
 
-_pool: ThreadedConnectionPool | None = None
-_pool_lock = threading.Lock()
+_pool: ConnectionPool | None = None
 
 MIN_POOL_CONNECTIONS = 2
 MAX_POOL_CONNECTIONS = 10
 
 
 class PooledConnection:
-    """Wraps a psycopg2 connection so .close() returns it to the pool."""
+    """Wraps a psycopg connection so .close() returns it to the pool."""
 
-    def __init__(self, conn: connection, pool: ThreadedConnectionPool) -> None:
+    def __init__(self, conn: psycopg.Connection, pool: ConnectionPool) -> None:
         self._conn = conn
         self._pool = pool
 
@@ -33,7 +30,7 @@ class PooledConnection:
             if self._conn.closed:
                 return
             # Roll back any uncommitted transaction before returning to pool
-            if self._conn.status != psycopg2.extensions.STATUS_READY:
+            if self._conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
                 self._conn.rollback()
             self._pool.putconn(self._conn)
         except Exception:
@@ -59,24 +56,22 @@ def init_pool(
 ) -> None:
     """Initialize the connection pool. Safe to call multiple times."""
     global _pool
-    with _pool_lock:
-        if _pool is not None:
-            return
-        database_url = os.environ.get("DATABASE_URL")
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable not set")
-        _pool = ThreadedConnectionPool(min_conn, max_conn, database_url)
-        logger.info("Connection pool initialized (min=%d, max=%d)", min_conn, max_conn)
+    if _pool is not None:
+        return
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable not set")
+    _pool = ConnectionPool(conninfo=database_url, min_size=min_conn, max_size=max_conn, open=True)
+    logger.info("Connection pool initialized (min=%d, max=%d)", min_conn, max_conn)
 
 
 def close_pool() -> None:
     """Close all connections in the pool."""
     global _pool
-    with _pool_lock:
-        if _pool is not None:
-            _pool.closeall()
-            _pool = None
-            logger.info("Connection pool closed")
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+        logger.info("Connection pool closed")
 
 
 def get_connection() -> PooledConnection:
@@ -93,8 +88,7 @@ def get_connection() -> PooledConnection:
     except Exception:
         # Pool may have been closed or exhausted; try reinitializing once
         logger.warning("Pool getconn failed, reinitializing", exc_info=True)
-        with _pool_lock:
-            _pool = None
+        _pool = None
         init_pool()
         conn = _pool.getconn()
     return PooledConnection(conn, _pool)
@@ -111,7 +105,7 @@ def get_db() -> Iterator[PooledConnection]:
 
 
 def insert_report(
-    conn: connection,
+    conn: psycopg.Connection,
     source_url: str,
     source_name: str,
     content_type: str,
@@ -150,7 +144,7 @@ def insert_report(
     return report_id
 
 
-def get_unprocessed_reports(conn: connection, limit: int = 100) -> list[dict]:
+def get_unprocessed_reports(conn: psycopg.Connection, limit: int = 100) -> list[dict]:
     """Get reports that haven't been processed yet."""
     cur = conn.cursor()
     cur.execute(
@@ -168,7 +162,7 @@ def get_unprocessed_reports(conn: connection, limit: int = 100) -> list[dict]:
 
 
 def mark_report_processed(
-    conn: connection,
+    conn: psycopg.Connection,
     report_id: int,
     summary: str | None = None,
     sentiment_score: float | None = None,
@@ -193,7 +187,7 @@ def mark_report_processed(
 
 
 def upsert_scouting_player(
-    conn: connection,
+    conn: psycopg.Connection,
     name: str,
     team: str,
     position: str | None = None,
@@ -253,7 +247,7 @@ def upsert_scouting_player(
     return player_id
 
 
-def get_scouting_player(conn: connection, player_id: int) -> dict | None:
+def get_scouting_player(conn: psycopg.Connection, player_id: int) -> dict | None:
     """Get a scouting player by ID."""
     cur = conn.cursor()
     cur.execute(
@@ -275,7 +269,7 @@ def get_scouting_player(conn: connection, player_id: int) -> dict | None:
 
 
 def link_report_to_player(
-    conn: connection,
+    conn: psycopg.Connection,
     report_id: int,
     player_id: int,
 ) -> None:
@@ -297,7 +291,7 @@ def link_report_to_player(
 
 
 def insert_timeline_snapshot(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
     snapshot_date: date,
     status: str | None = None,
@@ -336,7 +330,7 @@ def insert_timeline_snapshot(
 
 
 def get_player_timeline(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
     limit: int = 30,
 ) -> list[dict]:
@@ -358,7 +352,7 @@ def get_player_timeline(
 
 
 def upsert_pff_grade(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
     pff_player_id: str,
     season: int,
@@ -399,7 +393,7 @@ def upsert_pff_grade(
 
 
 def get_player_pff_grades(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
     season: int | None = None,
 ) -> list[dict]:
@@ -426,7 +420,7 @@ def get_player_pff_grades(
 
 
 def create_watch_list(
-    conn: connection,
+    conn: psycopg.Connection,
     user_id: str,
     name: str,
     description: str | None = None,
@@ -447,7 +441,7 @@ def create_watch_list(
 
 
 def get_watch_lists(
-    conn: connection,
+    conn: psycopg.Connection,
     user_id: str,
 ) -> list[dict]:
     """Get all watch lists for a user."""
@@ -466,7 +460,7 @@ def get_watch_lists(
 
 
 def get_watch_list(
-    conn: connection,
+    conn: psycopg.Connection,
     list_id: int,
 ) -> dict | None:
     """Get a specific watch list."""
@@ -487,7 +481,7 @@ def get_watch_list(
 
 
 def add_to_watch_list(
-    conn: connection,
+    conn: psycopg.Connection,
     list_id: int,
     player_id: int,
 ) -> None:
@@ -510,7 +504,7 @@ def add_to_watch_list(
 
 
 def remove_from_watch_list(
-    conn: connection,
+    conn: psycopg.Connection,
     list_id: int,
     player_id: int,
 ) -> None:
@@ -529,7 +523,7 @@ def remove_from_watch_list(
 
 
 def delete_watch_list(
-    conn: connection,
+    conn: psycopg.Connection,
     list_id: int,
 ) -> None:
     """Delete a watch list."""
@@ -542,7 +536,7 @@ def delete_watch_list(
 
 
 def create_alert(
-    conn: connection,
+    conn: psycopg.Connection,
     user_id: str,
     name: str,
     alert_type: str,
@@ -568,7 +562,7 @@ def create_alert(
 
 
 def get_user_alerts(
-    conn: connection,
+    conn: psycopg.Connection,
     user_id: str,
     active_only: bool = True,
 ) -> list[dict]:
@@ -593,7 +587,7 @@ def get_user_alerts(
     return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
-def get_alert(conn: connection, alert_id: int) -> dict | None:
+def get_alert(conn: psycopg.Connection, alert_id: int) -> dict | None:
     """Get a specific alert."""
     cur = conn.cursor()
     cur.execute(
@@ -612,7 +606,7 @@ def get_alert(conn: connection, alert_id: int) -> dict | None:
     return dict(zip(columns, row))
 
 
-def update_alert_checked(conn: connection, alert_id: int) -> None:
+def update_alert_checked(conn: psycopg.Connection, alert_id: int) -> None:
     """Update last_checked_at timestamp."""
     cur = conn.cursor()
     cur.execute(
@@ -622,7 +616,7 @@ def update_alert_checked(conn: connection, alert_id: int) -> None:
     conn.commit()
 
 
-def deactivate_alert(conn: connection, alert_id: int) -> None:
+def deactivate_alert(conn: psycopg.Connection, alert_id: int) -> None:
     """Deactivate an alert."""
     cur = conn.cursor()
     cur.execute(
@@ -632,7 +626,7 @@ def deactivate_alert(conn: connection, alert_id: int) -> None:
     conn.commit()
 
 
-def delete_alert(conn: connection, alert_id: int) -> None:
+def delete_alert(conn: psycopg.Connection, alert_id: int) -> None:
     """Delete an alert and its history."""
     cur = conn.cursor()
     cur.execute("DELETE FROM scouting.alerts WHERE id = %s", (alert_id,))
@@ -640,7 +634,7 @@ def delete_alert(conn: connection, alert_id: int) -> None:
 
 
 def fire_alert(
-    conn: connection,
+    conn: psycopg.Connection,
     alert_id: int,
     trigger_data: dict,
     message: str,
@@ -662,7 +656,7 @@ def fire_alert(
     return history_id
 
 
-def get_unread_alerts(conn: connection, user_id: str) -> list[dict]:
+def get_unread_alerts(conn: psycopg.Connection, user_id: str) -> list[dict]:
     """Get unread alert history for a user."""
     cur = conn.cursor()
     cur.execute(
@@ -680,7 +674,7 @@ def get_unread_alerts(conn: connection, user_id: str) -> list[dict]:
     return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
-def mark_alert_read(conn: connection, history_id: int) -> None:
+def mark_alert_read(conn: psycopg.Connection, history_id: int) -> None:
     """Mark an alert history entry as read."""
     cur = conn.cursor()
     cur.execute(
@@ -694,7 +688,7 @@ def mark_alert_read(conn: connection, history_id: int) -> None:
 
 
 def insert_transfer_event(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
     event_type: str,
     from_team: str | None = None,
@@ -734,7 +728,7 @@ def insert_transfer_event(
 
 
 def get_player_transfer_history(
-    conn: connection,
+    conn: psycopg.Connection,
     player_id: int,
 ) -> list[dict]:
     """Get transfer history for a player."""
@@ -754,7 +748,7 @@ def get_player_transfer_history(
 
 
 def get_active_portal_players(
-    conn: connection,
+    conn: psycopg.Connection,
     position: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
@@ -793,7 +787,7 @@ def get_active_portal_players(
 
 
 def get_team_transfer_activity(
-    conn: connection,
+    conn: psycopg.Connection,
     team: str,
 ) -> dict:
     """Get transfer activity for a team (incoming and outgoing)."""
@@ -836,7 +830,7 @@ def get_team_transfer_activity(
 
 
 def insert_portal_snapshot(
-    conn: connection,
+    conn: psycopg.Connection,
     snapshot_date: date,
     total_in_portal: int,
     by_position: dict | None = None,
@@ -876,7 +870,7 @@ def insert_portal_snapshot(
 
 
 def upsert_player_embedding(
-    conn: connection,
+    conn: psycopg.Connection,
     roster_id: str,
     identity_text: str,
     embedding: list[float],
@@ -911,7 +905,7 @@ def upsert_player_embedding(
 
 
 def get_player_embedding(
-    conn: connection,
+    conn: psycopg.Connection,
     roster_id: str,
 ) -> dict | None:
     """Get embedding for a roster player.
@@ -941,7 +935,7 @@ def get_player_embedding(
 
 
 def find_similar_by_embedding(
-    conn: connection,
+    conn: psycopg.Connection,
     embedding: list[float],
     limit: int = 10,
     exclude_roster_id: str | None = None,
@@ -984,7 +978,7 @@ def find_similar_by_embedding(
 
 
 def insert_pending_link(
-    conn: connection,
+    conn: psycopg.Connection,
     source_name: str,
     source_team: str | None,
     source_context: dict | None,
@@ -1032,7 +1026,7 @@ def insert_pending_link(
 
 
 def get_pending_links(
-    conn: connection,
+    conn: psycopg.Connection,
     status: str = "pending",
     limit: int = 100,
 ) -> list[dict]:
@@ -1064,7 +1058,7 @@ def get_pending_links(
 
 
 def update_pending_link_status(
-    conn: connection,
+    conn: psycopg.Connection,
     link_id: int,
     status: str,
 ) -> None:
