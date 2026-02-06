@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+echo "=== Pre-push checks ==="
+
+echo "→ ruff check..."
+.venv/bin/ruff check .
+
+echo "→ ruff format --check..."
+.venv/bin/ruff format --check .
+
+# Tests require a live Supabase database and API keys,
+# so they are not run in pre-push.
+
+echo "=== All checks passed ==="
