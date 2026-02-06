@@ -7,6 +7,8 @@ from typing import TypedDict
 
 import anthropic
 
+from ..config import CLAUDE_MODEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +35,7 @@ def extract_sentiment(text: str) -> float:
     client = get_client()
 
     response = client.messages.create(
-        model="claude-3-haiku-20240307",  # Fast/cheap for simple tasks
+        model=CLAUDE_MODEL,
         max_tokens=50,
         messages=[
             {
@@ -73,7 +75,7 @@ def summarize_report(text: str, team_context: list[str] | None = None) -> Summar
         context = f"Teams mentioned: {', '.join(team_context)}\n\n"
 
     response = client.messages.create(
-        model="claude-3-haiku-20240307",
+        model=CLAUDE_MODEL,
         max_tokens=500,
         messages=[
             {

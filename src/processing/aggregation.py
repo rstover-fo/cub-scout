@@ -6,6 +6,7 @@ import os
 
 import anthropic
 
+from ..config import CLAUDE_MODEL
 from ..storage.db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ def extract_traits_from_reports(reports: list[dict]) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     response = client.messages.create(
-        model="claude-3-haiku-20240307",
+        model=CLAUDE_MODEL,
         max_tokens=500,
         messages=[
             {

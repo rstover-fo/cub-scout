@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Claude model used for all LLM calls
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+
 
 @dataclass(frozen=True)
 class Config:
