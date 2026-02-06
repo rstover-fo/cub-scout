@@ -18,6 +18,7 @@ from src.crawlers.recruiting.two47 import Two47Crawler
 from src.processing.alerting import run_alert_check
 from src.processing.entity_linking import run_entity_linking
 from src.processing.grading import run_grading_pipeline
+from src.processing.pff_pipeline import run_pff_pipeline
 from src.processing.pipeline import process_reports
 from src.storage.db import (
     get_connection,
@@ -226,6 +227,11 @@ async def async_main():
         help="Review pending player links",
     )
     parser.add_argument(
+        "--fetch-pff",
+        action="store_true",
+        help="Fetch PFF grades for players missing recent data",
+    )
+    parser.add_argument(
         "--evaluate-alerts",
         action="store_true",
         help="Evaluate alert conditions for all players with active alerts",
@@ -241,6 +247,7 @@ async def async_main():
             args.crawl_247,
             args.link,
             args.grade,
+            args.fetch_pff,
             args.review_links,
             args.evaluate_alerts,
         ]
@@ -281,8 +288,13 @@ async def async_main():
         stage_results.append(sr)
         _log_stage(sr)
 
+    if args.fetch_pff or args.all:
+        logger.info("Fetching PFF grades...")
+        sr = await run_stage("fetch-pff", run_pff_pipeline(batch_size=args.batch_size))
+        stage_results.append(sr)
+        _log_stage(sr)
+
     if args.evaluate_alerts or args.all:
-        logger.info("Evaluating alerts...")
         sr = await run_stage("evaluate-alerts", run_alert_check())
         stage_results.append(sr)
         _log_stage(sr)

@@ -158,48 +158,63 @@ async def list_teams(limit: int = Query(25, ge=1, le=100)):
 
         await cur.execute(
             """
-            SELECT team,
-                   COUNT(*) as player_count,
-                   AVG(composite_grade) as avg_grade
-            FROM scouting.players
-            WHERE team IS NOT NULL
-            GROUP BY team
-            ORDER BY avg_grade DESC NULLS LAST
-            LIMIT %s
+            WITH team_stats AS (
+                SELECT team,
+                       COUNT(*) as player_count,
+                       AVG(composite_grade) as avg_grade
+                FROM scouting.players
+                WHERE team IS NOT NULL
+                GROUP BY team
+                ORDER BY avg_grade DESC NULLS LAST
+                LIMIT %s
+            ),
+            ranked_players AS (
+                SELECT p.id, p.name, p.team, p.position, p.class_year,
+                       p.composite_grade, p.current_status,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY p.team
+                           ORDER BY p.composite_grade DESC NULLS LAST
+                       ) as rn
+                FROM scouting.players p
+                JOIN team_stats ts ON p.team = ts.team
+            )
+            SELECT ts.team, ts.player_count, ts.avg_grade,
+                   rp.id, rp.name, rp.position, rp.class_year,
+                   rp.composite_grade, rp.current_status
+            FROM team_stats ts
+            LEFT JOIN ranked_players rp ON ts.team = rp.team AND rp.rn <= 3
+            ORDER BY ts.avg_grade DESC NULLS LAST, ts.team, rp.rn
             """,
             (limit,),
         )
 
-        teams = []
-        for row in await cur.fetchall():
-            team_name, player_count, avg_grade = row
-
-            # Get top 3 players for this team
-            await cur.execute(
-                """
-                SELECT id, name, team, position, class_year,
-                       composite_grade, current_status
-                FROM scouting.players
-                WHERE team = %s
-                ORDER BY composite_grade DESC NULLS LAST
-                LIMIT 3
-                """,
-                (team_name,),
-            )
-            columns = [desc[0] for desc in cur.description]
-            top_players = [PlayerSummary(**dict(zip(columns, p))) for p in await cur.fetchall()]
-
-            teams.append(
-                TeamSummary(
-                    team=team_name,
-                    player_count=player_count,
-                    avg_grade=round(float(avg_grade), 1) if avg_grade else None,
-                    top_players=top_players,
-                )
-            )
-
+        rows = await cur.fetchall()
         await cur.close()
-        return teams
+
+        teams_map: dict[str, TeamSummary] = {}
+        for row in rows:
+            team_name = row[0]
+            if team_name not in teams_map:
+                teams_map[team_name] = TeamSummary(
+                    team=team_name,
+                    player_count=row[1],
+                    avg_grade=round(float(row[2]), 1) if row[2] else None,
+                    top_players=[],
+                )
+            if row[3] is not None:  # player id present
+                teams_map[team_name].top_players.append(
+                    PlayerSummary(
+                        id=row[3],
+                        name=row[4],
+                        team=team_name,
+                        position=row[5],
+                        class_year=row[6],
+                        composite_grade=row[7],
+                        current_status=row[8],
+                    )
+                )
+
+        return list(teams_map.values())
 
 
 @app.get("/teams/{team_name}/players", response_model=list[PlayerSummary])
