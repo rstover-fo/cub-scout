@@ -1,24 +1,107 @@
 """Database connection and operations for CFB Scout."""
 
+import logging
 import os
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
 
 import psycopg2
 from psycopg2.extensions import connection
+from psycopg2.pool import ThreadedConnectionPool
+
+logger = logging.getLogger(__name__)
+
+_pool: ThreadedConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+MIN_POOL_CONNECTIONS = 2
+MAX_POOL_CONNECTIONS = 10
 
 
-def get_connection() -> connection:
-    """Get a database connection."""
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise ValueError("DATABASE_URL environment variable not set")
-    return psycopg2.connect(database_url)
+class PooledConnection:
+    """Wraps a psycopg2 connection so .close() returns it to the pool."""
+
+    def __init__(self, conn: connection, pool: ThreadedConnectionPool) -> None:
+        self._conn = conn
+        self._pool = pool
+
+    def close(self) -> None:
+        """Return connection to pool instead of closing it."""
+        try:
+            if self._conn.closed:
+                return
+            # Roll back any uncommitted transaction before returning to pool
+            if self._conn.status != psycopg2.extensions.STATUS_READY:
+                self._conn.rollback()
+            self._pool.putconn(self._conn)
+        except Exception:
+            logger.warning("Failed to return connection to pool, discarding", exc_info=True)
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+def init_pool(
+    min_conn: int = MIN_POOL_CONNECTIONS,
+    max_conn: int = MAX_POOL_CONNECTIONS,
+) -> None:
+    """Initialize the connection pool. Safe to call multiple times."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            return
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable not set")
+        _pool = ThreadedConnectionPool(min_conn, max_conn, database_url)
+        logger.info("Connection pool initialized (min=%d, max=%d)", min_conn, max_conn)
+
+
+def close_pool() -> None:
+    """Close all connections in the pool."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            _pool.closeall()
+            _pool = None
+            logger.info("Connection pool closed")
+
+
+def get_connection() -> PooledConnection:
+    """Get a database connection from the pool.
+
+    Lazily initializes the pool on first call.
+    Returns a PooledConnection whose .close() returns the conn to the pool.
+    """
+    global _pool
+    if _pool is None:
+        init_pool()
+    try:
+        conn = _pool.getconn()
+    except Exception:
+        # Pool may have been closed or exhausted; try reinitializing once
+        logger.warning("Pool getconn failed, reinitializing", exc_info=True)
+        with _pool_lock:
+            _pool = None
+        init_pool()
+        conn = _pool.getconn()
+    return PooledConnection(conn, _pool)
 
 
 @contextmanager
-def get_db() -> Iterator[connection]:
+def get_db() -> Iterator[PooledConnection]:
     """Context manager for database connections."""
     conn = get_connection()
     try:

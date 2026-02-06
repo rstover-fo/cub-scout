@@ -1,6 +1,9 @@
 # src/api/main.py
 """FastAPI application for CFB Scout API."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 
@@ -21,6 +24,7 @@ from ..processing.trends import (  # noqa: E402
 )
 from ..storage.db import (  # noqa: E402
     add_to_watch_list,
+    close_pool,
     create_alert,
     create_watch_list,
     deactivate_alert,
@@ -37,6 +41,7 @@ from ..storage.db import (  # noqa: E402
     get_user_alerts,
     get_watch_list,
     get_watch_lists,
+    init_pool,
     mark_alert_read,
     remove_from_watch_list,
 )
@@ -61,10 +66,20 @@ from .models import (  # noqa: E402
     WatchListCreate,
 )
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Initialize connection pool on startup, close on shutdown."""
+    init_pool()
+    yield
+    close_pool()
+
+
 app = FastAPI(
     title="CFB Scout API",
     description="College Football Scouting Intelligence API",
     version="0.3.0",
+    lifespan=lifespan,
 )
 
 
