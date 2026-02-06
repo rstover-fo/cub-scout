@@ -30,6 +30,11 @@ src/
 uvicorn src.api.main:app --reload   # Dev server
 ```
 
+## Git Conventions
+
+- Branch names: `feature/`, `fix/`, `refactor/`, `chore/` prefixes
+- Commit messages: imperative mood, 50-char subject line
+
 ## Environment Variables
 
 `DATABASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`

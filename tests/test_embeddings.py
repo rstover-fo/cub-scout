@@ -1,7 +1,5 @@
 """Tests for player embedding generation."""
 
-from unittest.mock import MagicMock, patch
-
 from src.processing.embeddings import (
     EmbeddingResult,
     build_identity_text,
@@ -45,15 +43,8 @@ def test_build_identity_text_missing_fields():
     assert result == "John Smith | Alabama | 2024"
 
 
-@patch("src.processing.embeddings._get_client")
-def test_generate_embedding_returns_result(mock_get_client):
+def test_generate_embedding_returns_result(mock_openai):
     """Test generating embedding returns EmbeddingResult."""
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
-    mock_client.embeddings.create.return_value = mock_response
-    mock_get_client.return_value = mock_client
-
     result = generate_embedding("Arch Manning | QB | Texas | 2024")
 
     assert isinstance(result, EmbeddingResult)
@@ -61,18 +52,11 @@ def test_generate_embedding_returns_result(mock_get_client):
     assert result.identity_text == "Arch Manning | QB | Texas | 2024"
 
 
-@patch("src.processing.embeddings._get_client")
-def test_generate_embedding_calls_openai(mock_get_client):
+def test_generate_embedding_calls_openai(mock_openai):
     """Test that generate_embedding calls OpenAI with correct params."""
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
-    mock_client.embeddings.create.return_value = mock_response
-    mock_get_client.return_value = mock_client
-
     generate_embedding("test text")
 
-    mock_client.embeddings.create.assert_called_once_with(
+    mock_openai.embeddings.create.assert_called_once_with(
         model="text-embedding-3-small",
         input="test text",
     )
