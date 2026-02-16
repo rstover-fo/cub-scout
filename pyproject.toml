@@ -26,6 +26,14 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.3.0",
 ]
+film = [
+    "opencv-python>=4.8.0",
+    "scenedetect>=0.6.0",
+    "paddleocr>=2.7.0",
+    "paddlepaddle>=2.5.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -40,6 +48,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[project.scripts]
+cfb-parse = "src.film_parser.cli:app"
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["E402"]

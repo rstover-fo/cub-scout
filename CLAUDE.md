@@ -13,6 +13,13 @@ This project is part of a three-repo college football platform sharing a single 
 
 **Schema dependency:** cfb-scout reads from `core.roster` and `recruiting.recruits` (owned by cfb-database) and owns the `scouting` schema. Changes to roster/recruit schema in cfb-database can break this project.
 
+## Hard Rules
+
+- **Never modify `core.roster` or `recruiting.recruits`** — those schemas are owned by cfb-database; changes there break this project
+- **Never make raw Anthropic/OpenAI calls** — use the lazy singleton clients in `src/clients/`
+- **Never skip the 3-tier matching pipeline** (deterministic → vector → fuzzy) for entity linking
+- **Never run tests without a live Supabase connection** — integration tests require it; unit tests use `conftest.py` auto-mocks
+
 ## Tech Stack
 
 - Python 3.12, FastAPI, psycopg v3 async (AsyncConnectionPool), anthropic, openai, pgvector
@@ -121,7 +128,9 @@ Uses batch N+2 optimization: loads PFF grades and trends in 2 bulk queries inste
 - **FastAPI lifespan:** Pool init/cleanup via async context manager
 - **Auto-mocking in tests:** `conftest.py` auto-patches all LLM calls with prompt-based routing
 
-## Commands
+## Verification Commands
+
+Run after every change. All must pass before committing.
 
 ```bash
 # Development
