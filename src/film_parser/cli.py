@@ -68,7 +68,7 @@ def parse(
     try:
         from src.film_parser.clip_extractor import extract_play_clips, extract_situation_frames
         from src.film_parser.filename_parser import parse_filename
-        from src.film_parser.frame_classifier import classify_segments
+        from src.film_parser.frame_classifier import classify_segments, refine_classification
         from src.film_parser.ocr_extract import extract_all_situation_data
         from src.film_parser.play_assembler import assemble_plays
         from src.film_parser.scene_detect import detect_scenes
@@ -135,6 +135,17 @@ def parse(
         ocr_results = extract_all_situation_data(video_path, classified)
         console.print(f"  OCR extracted: [cyan]{len(ocr_results)}[/cyan] segments")
         progress.advance(pipeline_task)
+
+        # Step 5b: Post-OCR refinement
+        progress.update(pipeline_task, description="Refining classification...")
+        classified = refine_classification(classified, ocr_results)
+        refined_sit = sum(1 for s in classified if s.segment_type == SegmentType.SITUATION)
+        reclassified = situation_count - refined_sit
+        if reclassified > 0:
+            console.print(
+                f"  Refined: reclassified [yellow]{reclassified}[/yellow]"
+                f" short empty situations → [green]{refined_sit}[/green] situations remain"
+            )
 
         # Step 6: Assemble plays
         progress.update(pipeline_task, description="Assembling plays...")

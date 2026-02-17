@@ -26,20 +26,58 @@ def _get_ocr() -> PaddleOCR:
 
 
 # Regex patterns for broadcast-style overlays (e.g. "2ND & 7")
-_QUARTER_PREFIX = re.compile(r"(?:Q|QTR)\s*([1-4])", re.IGNORECASE)
+# Word boundary \b after digit prevents "QTR 10" (yard line) from matching as Q1
+_QUARTER_PREFIX = re.compile(r"(?:Q|QTR|OTR)\s*([1-4])\b", re.IGNORECASE)
 _QUARTER_SUFFIX = re.compile(r"([1-4])(?:ST|ND|RD|TH)\s*(?:QTR|QUARTER)", re.IGNORECASE)
 _DOWN_DISTANCE = re.compile(r"([1-4])(?:ST|ND|RD|TH)\s*(?:&|AND)\s*(\d+|GOAL)", re.IGNORECASE)
 _CLOCK = re.compile(r"(\d{1,2}:[0-5]\d)")
 _PLAY_NUMBER_LABELED = re.compile(r"(?:PLAY|#)\s*(\d+)", re.IGNORECASE)
 _YARD_LINE = re.compile(r"\b([A-Z]{2,})\s+(\d{1,2})\b", re.IGNORECASE)
-_YARD_LINE_EXCLUDE = {"play", "qtr", "quarter", "q", "st", "nd", "rd", "th", "and", "vs"}
+_YARD_LINE_EXCLUDE = {
+    "play",
+    "qtr",
+    "otr",
+    "quarter",
+    "q",
+    "st",
+    "nd",
+    "rd",
+    "th",
+    "and",
+    "vs",
+    "allstate",
+    "official",
+    "sponsor",
+    "athletics",
+    "main",
+    "clock",
+    "down",
+    "to",
+    "go",
+    "tol",
+    "free",
+    "supe",
+    "store",
+    "sec",
+}
 
-# Catapult-specific pattern: "{QUARTER_ORD} DOWN TO GO BALL ON Main Clock {values}"
-# Values section contains DOWN_ORD, DISTANCE, YARD_LINE, CLOCK in variable order.
+# Catapult digital overlay: "{QUARTER_ORD} DOWN TO GO BALL ON Main Clock {values}"
 _CATAPULT_HEADER = re.compile(
-    r"([1-4])(?:ST|ND|RD|TH)\s+DOWN\s+TO\s+GO\s+BALL\s+ON\s+(?:Main\s+)?Clock\s+(.*)",
+    r"([1-4])(?:ST|ND|RD|TH)\s+DOWN\s+TO\s+GO\s+BALL\s*ON\s+(?:Main\s+)?Clock\s+(.*)",
     re.IGNORECASE,
 )
+
+# Scoreboard camera: "N DOWN [M] [TO GO]" — captures down and optional distance.
+# "TO GO" is optional to handle OCR truncation. Distance captures "DOWN10" concatenation.
+_DOWN_KEYWORD = re.compile(r"([1-4])\s+DOWN\s*(\d{1,2})?", re.IGNORECASE)
+# Reversed: "DOWN N" (some scoreboards show "DOWN" label then the down number)
+_DOWN_KEYWORD_SHORT = re.compile(r"\bDOWN\s*([1-4])\b", re.IGNORECASE)
+
+# Quarter from "T:" or "T." prefix before clock (OCR misread of "QTR" on scoreboards)
+_QUARTER_BEFORE_CLOCK = re.compile(r"\b([1-4I])\s+(\d{1,2}:[0-5]\d)")
+# "T: 14:54" or "T. 14:54" — Tennessee scoreboard format
+_QUARTER_T_CLOCK = re.compile(r"\bT[.:]\s*(\d{1,2}:[0-5]\d)")
+
 _ORDINAL = re.compile(r"([1-4])(?:ST|ND|RD|TH)", re.IGNORECASE)
 _PLAIN_NUMBER = re.compile(r"\b(\d{1,2})\b")
 
@@ -114,25 +152,57 @@ def _parse_catapult_format(text: str) -> SituationData | None:
 
 
 def _parse_quarter(text: str) -> int | None:
-    """Extract quarter number from OCR text."""
+    """Extract quarter number from OCR text.
+
+    Tries three patterns in priority order:
+    1. Labeled prefix: "Q1", "QTR 2"
+    2. Labeled suffix: "1ST QTR", "3RD QUARTER"
+    3. Standalone digit before clock: "1 11:07" (scoreboard camera format)
+    """
     match = _QUARTER_PREFIX.search(text)
     if match:
         return int(match.group(1))
     match = _QUARTER_SUFFIX.search(text)
     if match:
         return int(match.group(1))
+    # Scoreboard format: lone digit or "I" before MM:SS clock
+    match = _QUARTER_BEFORE_CLOCK.search(text)
+    if match:
+        q = match.group(1)
+        if q == "I":
+            return 1
+        return int(q)
     return None
 
 
 def _parse_down_distance(text: str) -> tuple[int | None, int | str | None]:
-    """Extract down and distance from OCR text."""
+    """Extract down and distance from OCR text.
+
+    Tries patterns in priority order:
+    1. Ordinal format: "1ST & 10", "3RD AND GOAL"
+    2. Keyword format: "1 DOWN [10]" with optional distance (handles "DOWN10" concat)
+    3. Reversed keyword: "DOWN 1" (some scoreboards show "DOWN" then the number)
+    """
+    # 1. Ordinal: "1ST & 10"
     match = _DOWN_DISTANCE.search(text)
-    if not match:
-        return None, None
-    down = int(match.group(1))
-    dist_raw = match.group(2).upper()
-    distance: int | str = dist_raw if dist_raw == "GOAL" else int(dist_raw)
-    return down, distance
+    if match:
+        down = int(match.group(1))
+        dist_raw = match.group(2).upper()
+        distance: int | str = dist_raw if dist_raw == "GOAL" else int(dist_raw)
+        return down, distance
+    # 2. Scoreboard: "N DOWN [M] TO GO"
+    match = _DOWN_KEYWORD.search(text)
+    if match:
+        down = int(match.group(1))
+        dist_str = match.group(2)
+        dist = int(dist_str) if dist_str else None
+        return down, dist
+    # 3. Reversed: "DOWN N"
+    match = _DOWN_KEYWORD_SHORT.search(text)
+    if match:
+        down = int(match.group(1))
+        return down, None
+    return None, None
 
 
 def _parse_clock(text: str) -> str | None:

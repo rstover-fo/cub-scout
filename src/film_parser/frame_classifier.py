@@ -1,8 +1,12 @@
 """Classify video segments as SITUATION or GAME_ACTION using OpenCV heuristics.
 
-Calibrated against Catapult All-22 exports where situation frames are scoreboard
-graphics with large black regions (~66% of pixels), while game action frames are
-live field footage (<1% black pixels).
+Calibrated against Catapult All-22 exports across 10 games. Situation frames are
+scoreboard/title card graphics with elevated black pixel ratios compared to live
+field footage. The black_ratio varies by game (0.08–0.66 for situations, <0.04
+for game action), so we use both a pixel threshold and a duration guard.
+
+Duration guard: situation title cards are consistently 1–8 seconds across all
+games tested, while game action segments are 10–30+ seconds.
 """
 
 import logging
@@ -11,16 +15,29 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from src.film_parser.models import Segment, SegmentType
+from src.film_parser.models import Segment, SegmentType, SituationData
 from src.film_parser.utils import sample_frames
 
 logger = logging.getLogger(__name__)
 
 # Default threshold: fraction of pixels below brightness 30 (out of 255).
-# Situation frames: ~0.66 (scoreboard graphics on black background)
-# Game action frames: ~0.004 (live field footage)
-# Threshold of 0.20 gives wide separation margin.
-DEFAULT_BLACK_RATIO_THRESHOLD = 0.20
+# Situation frame black_ratio varies across Catapult exports:
+#   Kent State: ~0.66, LSU: ~0.66, Alabama: 0.09–0.60,
+#   Tennessee: 0.07–0.71, South Carolina: 0.05–0.09, Texas: 0.04–0.14
+# Game action frames are consistently < 0.02 across all games.
+# Threshold of 0.04 provides separation with duration guard as safety net.
+DEFAULT_BLACK_RATIO_THRESHOLD = 0.04
+
+# Duration bounds for situation segments (seconds).
+# Situation title cards are 1–8s across all tested games.
+# Game action segments are 10–30+s; transitions are <1s.
+MIN_SITUATION_DURATION = 1.0
+MAX_SITUATION_DURATION = 8.0
+
+# Post-OCR refinement: short segments with no OCR text are likely dark
+# transition frames, not real situation cards. Real short situations (e.g.
+# Temple at 1.2s) contain readable text; dark transitions do not.
+MAX_DURATION_FOR_OCR_CHECK = 2.5
 
 
 def _compute_frame_features(frame: np.ndarray) -> dict[str, float]:
@@ -48,10 +65,15 @@ def classify_segment(
     Samples 3 evenly-spaced frames (25%, 50%, 75% of duration) and uses
     majority vote on black pixel ratio to classify.
 
-    Situation frames (Catapult scoreboard graphics) have ~66% black pixels.
-    Game action frames (live field footage) have <1% black pixels.
+    Applies a duration guard: situation title cards (both digital overlays and
+    in-stadium scoreboard camera shots) are consistently 1–8 seconds.
     """
     duration = segment.end_time - segment.start_time
+
+    # Duration guard: situation title cards are 1–8 seconds
+    if duration < MIN_SITUATION_DURATION or duration > MAX_SITUATION_DURATION:
+        return SegmentType.GAME_ACTION
+
     timestamps = [segment.start_time + duration * frac for frac in (0.25, 0.50, 0.75)]
     frames = sample_frames(video_path, timestamps)
 
@@ -74,8 +96,18 @@ def _classify_segment_with_cap(
     segment: Segment,
     black_ratio_threshold: float = DEFAULT_BLACK_RATIO_THRESHOLD,
 ) -> SegmentType:
-    """Classify a segment using a pre-opened video capture (batch optimization)."""
+    """Classify a segment using a pre-opened video capture (batch optimization).
+
+    Applies a duration guard: segments outside [1.0, 8.0] seconds are always
+    classified as GAME_ACTION, since situation title cards consistently fall
+    within this range across all tested Catapult exports.
+    """
     duration = segment.end_time - segment.start_time
+
+    # Duration guard: situation title cards are 1–8 seconds
+    if duration < MIN_SITUATION_DURATION or duration > MAX_SITUATION_DURATION:
+        return SegmentType.GAME_ACTION
+
     timestamps = [segment.start_time + duration * frac for frac in (0.25, 0.50, 0.75)]
 
     frames: list[np.ndarray] = []
@@ -129,3 +161,48 @@ def classify_segments(video_path: str | Path, segments: list[Segment]) -> list[S
         game_action_count,
     )
     return classified
+
+
+def refine_classification(
+    segments: list[Segment],
+    ocr_results: dict[int, SituationData],
+) -> list[Segment]:
+    """Post-OCR refinement: reclassify false situation segments.
+
+    Some Catapult exports (e.g. Michigan) have brief (~1-2s) dark transition
+    frames between plays that pass the black_ratio threshold but contain no
+    scoreboard text. Real short situations (e.g. Temple at 1.2s) produce
+    readable OCR text. This function downgrades short situations with
+    completely empty OCR to GAME_ACTION.
+
+    Args:
+        segments: Classified segments (output of classify_segments).
+        ocr_results: OCR extraction results keyed by segment index.
+
+    Returns:
+        Updated segment list with false situations reclassified.
+    """
+    refined = []
+    reclassified = 0
+
+    for idx, seg in enumerate(segments):
+        if (
+            seg.segment_type == SegmentType.SITUATION
+            and (seg.end_time - seg.start_time) < MAX_DURATION_FOR_OCR_CHECK
+        ):
+            ocr_data = ocr_results.get(idx)
+            has_text = ocr_data is not None and ocr_data.raw_ocr_text.strip() != ""
+            if not has_text:
+                refined.append(seg.model_copy(update={"segment_type": SegmentType.GAME_ACTION}))
+                reclassified += 1
+                continue
+
+        refined.append(seg)
+
+    if reclassified > 0:
+        logger.info(
+            "Post-OCR refinement: reclassified %d short empty situations as game action",
+            reclassified,
+        )
+
+    return refined

@@ -8,8 +8,9 @@ from src.film_parser.frame_classifier import (
     _compute_frame_features,
     classify_segment,
     classify_segments,
+    refine_classification,
 )
-from src.film_parser.models import Segment, SegmentType
+from src.film_parser.models import Segment, SegmentType, SituationData
 
 
 class TestComputeFrameFeatures:
@@ -90,6 +91,63 @@ class TestClassifySegment:
         assert result == SegmentType.SITUATION
 
 
+class TestDurationGuard:
+    """Duration guard: segments outside [1.0, 8.0]s are always GAME_ACTION."""
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_very_short_segment_is_game_action(self, mock_sample: MagicMock) -> None:
+        """Segments < 1.0s (transitions) are always GAME_ACTION regardless of black_ratio."""
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)  # 100% black
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=0.5)
+        result = classify_segment("/fake/video.mp4", seg)
+        assert result == SegmentType.GAME_ACTION
+        # sample_frames should NOT be called — duration guard exits early
+        mock_sample.assert_not_called()
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_very_long_segment_is_game_action(self, mock_sample: MagicMock) -> None:
+        """Segments > 8.0s (game action) are always GAME_ACTION regardless of black_ratio."""
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)  # 100% black
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=15.0)
+        result = classify_segment("/fake/video.mp4", seg)
+        assert result == SegmentType.GAME_ACTION
+        mock_sample.assert_not_called()
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_situation_duration_accepted(self, mock_sample: MagicMock) -> None:
+        """Segments in [1.0, 8.0]s range with high black_ratio are classified as SITUATION."""
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)  # 100% black
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=3.5)
+        result = classify_segment("/fake/video.mp4", seg)
+        assert result == SegmentType.SITUATION
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_boundary_1s_included(self, mock_sample: MagicMock) -> None:
+        """Exactly 1.0s duration is included in the valid range."""
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=1.0)
+        result = classify_segment("/fake/video.mp4", seg)
+        assert result == SegmentType.SITUATION
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_boundary_8s_included(self, mock_sample: MagicMock) -> None:
+        """Exactly 8.0s duration is included in the valid range."""
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=8.0)
+        result = classify_segment("/fake/video.mp4", seg)
+        assert result == SegmentType.SITUATION
+
+
 class TestClassifySegments:
     @patch("src.film_parser.frame_classifier.cv2")
     def test_opens_video_once_and_releases(self, mock_cv2: MagicMock) -> None:
@@ -160,3 +218,101 @@ class TestClassifySegments:
             pass
 
         mock_cap.release.assert_called_once()
+
+
+class TestRefineClassification:
+    """Post-OCR refinement: reclassify short empty situations as GAME_ACTION."""
+
+    def test_short_empty_ocr_reclassified(self) -> None:
+        """Short situation (<2.5s) with empty OCR text → GAME_ACTION."""
+        segments = [
+            Segment(start_time=0.0, end_time=1.5, segment_type=SegmentType.SITUATION),
+        ]
+        ocr_results = {0: SituationData(raw_ocr_text="")}
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.GAME_ACTION
+
+    def test_short_with_ocr_preserved(self) -> None:
+        """Short situation (<2.5s) with OCR text → stays SITUATION (Temple-style)."""
+        segments = [
+            Segment(start_time=0.0, end_time=1.3, segment_type=SegmentType.SITUATION),
+        ]
+        ocr_results = {0: SituationData(raw_ocr_text="1ST & 10 Q1 14:55", quarter=1, down=1)}
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.SITUATION
+
+    def test_long_empty_ocr_not_reclassified(self) -> None:
+        """Long situation (>=2.5s) with empty OCR stays SITUATION."""
+        segments = [
+            Segment(start_time=0.0, end_time=3.5, segment_type=SegmentType.SITUATION),
+        ]
+        ocr_results = {0: SituationData(raw_ocr_text="")}
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.SITUATION
+
+    def test_game_action_not_affected(self) -> None:
+        """GAME_ACTION segments are never touched by refinement."""
+        segments = [
+            Segment(start_time=0.0, end_time=1.5, segment_type=SegmentType.GAME_ACTION),
+        ]
+        ocr_results = {}
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.GAME_ACTION
+
+    def test_missing_ocr_result_reclassified(self) -> None:
+        """Short situation with no OCR result at all → GAME_ACTION (OCR didn't even run)."""
+        segments = [
+            Segment(start_time=0.0, end_time=1.5, segment_type=SegmentType.SITUATION),
+        ]
+        ocr_results = {}  # no entry for index 0
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.GAME_ACTION
+
+    def test_mixed_segments_selective_refinement(self) -> None:
+        """Only short empty situations get reclassified; others preserved."""
+        segments = [
+            # short, empty → reclassify
+            Segment(start_time=0.0, end_time=1.4, segment_type=SegmentType.SITUATION),
+            # game action → keep
+            Segment(start_time=1.4, end_time=12.0, segment_type=SegmentType.GAME_ACTION),
+            # long, empty → keep (OCR fail)
+            Segment(start_time=12.0, end_time=15.5, segment_type=SegmentType.SITUATION),
+            # short, has OCR → keep
+            Segment(start_time=15.5, end_time=16.8, segment_type=SegmentType.SITUATION),
+            # game action → keep
+            Segment(start_time=16.8, end_time=28.0, segment_type=SegmentType.GAME_ACTION),
+        ]
+        ocr_results = {
+            0: SituationData(raw_ocr_text=""),
+            2: SituationData(raw_ocr_text=""),
+            3: SituationData(raw_ocr_text="2ND & 7 Q2 8:23", quarter=2, down=2),
+        }
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.GAME_ACTION  # reclassified
+        assert refined[1].segment_type == SegmentType.GAME_ACTION  # unchanged
+        assert refined[2].segment_type == SegmentType.SITUATION  # long, kept
+        assert refined[3].segment_type == SegmentType.SITUATION  # has OCR, kept
+        assert refined[4].segment_type == SegmentType.GAME_ACTION  # unchanged
+
+    def test_boundary_exactly_2_5s_not_reclassified(self) -> None:
+        """Segment at exactly 2.5s is NOT below threshold — stays SITUATION."""
+        segments = [
+            Segment(start_time=0.0, end_time=2.5, segment_type=SegmentType.SITUATION),
+        ]
+        ocr_results = {0: SituationData(raw_ocr_text="")}
+
+        refined = refine_classification(segments, ocr_results)
+
+        assert refined[0].segment_type == SegmentType.SITUATION

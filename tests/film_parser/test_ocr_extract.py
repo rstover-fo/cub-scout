@@ -28,6 +28,10 @@ class TestParseQuarter:
     def test_qtr_prefix(self):
         assert _parse_quarter("QTR 3") == 3
 
+    def test_otr_prefix(self):
+        """OCR sometimes misreads QTR as OTR (scoreboard camera)."""
+        assert _parse_quarter("OTR 2") == 2
+
     def test_suffix_st(self):
         assert _parse_quarter("1ST QTR") == 1
 
@@ -48,6 +52,20 @@ class TestParseQuarter:
 
     def test_empty(self):
         assert _parse_quarter("") is None
+
+    def test_qtr_followed_by_two_digit_number_no_match(self):
+        """'QTR 10' is a yard line, not quarter 1 — word boundary prevents partial match."""
+        # Should NOT match Q1 from "QTR 10" since 10 is not a standalone digit 1-4
+        result = _parse_quarter("BALL ON QTR 10 L DOWN TO GO")
+        assert result is None
+
+    def test_before_clock_digit(self):
+        """Standalone digit before clock in scoreboard format: '1 11:07'."""
+        assert _parse_quarter("TEXAS 0 33 1 11:07 15") == 1
+
+    def test_before_clock_roman_i(self):
+        """Roman numeral I before clock: 'I 11:49'."""
+        assert _parse_quarter("SEXIS 0 22 I 11:49 1 10") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +94,32 @@ class TestParseDownDistance:
 
     def test_empty(self):
         assert _parse_down_distance("") == (None, None)
+
+    def test_scoreboard_down_with_distance_to_go(self):
+        """Alabama scoreboard format: '1 DOWN 10 TO GO'."""
+        assert _parse_down_distance("1 DOWN 10 TO GO") == (1, 10)
+
+    def test_scoreboard_down_without_distance(self):
+        """Scoreboard 'N DOWN TO GO' without explicit distance."""
+        assert _parse_down_distance("3 DOWN TO GO") == (3, None)
+
+    def test_scoreboard_down_no_to_go(self):
+        """Scoreboard 'N DOWN' without 'TO GO' (OCR truncation)."""
+        assert _parse_down_distance("1 DOWN") == (1, None)
+
+    def test_scoreboard_down_concatenated_distance(self):
+        """OCR concatenation: 'DOWN10' → captures distance 10."""
+        assert _parse_down_distance("1 DOWN10 TO GO") == (1, 10)
+
+    def test_reversed_down_keyword(self):
+        """Some scoreboards show 'DOWN N' with number after keyword."""
+        assert _parse_down_distance("BALL ON 30 DOWN 2") == (2, None)
+
+    def test_ordinal_takes_priority_over_keyword(self):
+        """Ordinal format is preferred when both patterns are present."""
+        down, dist = _parse_down_distance("2ND & 7 3 DOWN TO GO")
+        assert down == 2
+        assert dist == 7
 
 
 # ---------------------------------------------------------------------------
