@@ -49,11 +49,19 @@ def assemble_plays(segments: list[Segment], game_metadata: GameMetadata) -> Play
                 )
                 orphaned += 1
             elif state == _State.GOT_SIDELINE:
-                logger.warning(
-                    "Situation at %.3f interrupts incomplete triplet — discarding",
-                    seg.start_time,
+                # Emit as doublet (no separate endzone clip detected)
+                assert situation is not None
+                assert sideline is not None
+                play = Play(
+                    play_number=len(plays) + 1,
+                    situation=situation,
+                    sideline=sideline,
                 )
-                orphaned += 2  # situation + sideline both lost
+                plays.append(play)
+                logger.debug(
+                    "Emitting doublet play %d (no endzone cut detected)",
+                    play.play_number,
+                )
             situation = seg
             sideline = None
             state = _State.GOT_SITUATION
@@ -93,7 +101,15 @@ def assemble_plays(segments: list[Segment], game_metadata: GameMetadata) -> Play
     if state == _State.GOT_SITUATION:
         orphaned += 1
     elif state == _State.GOT_SIDELINE:
-        orphaned += 2
+        # Emit trailing doublet
+        assert situation is not None
+        assert sideline is not None
+        play = Play(
+            play_number=len(plays) + 1,
+            situation=situation,
+            sideline=sideline,
+        )
+        plays.append(play)
 
     quality = QualityMetrics(
         total_segments=len(segments),

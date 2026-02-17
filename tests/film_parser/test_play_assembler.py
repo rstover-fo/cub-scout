@@ -94,6 +94,7 @@ class TestTrailingIncomplete:
         assert catalog.quality_metrics.orphaned_segments == 1
 
     def test_trailing_situation_plus_one_action(self, game_meta: GameMetadata) -> None:
+        """Trailing SIT + GA emits a doublet play (no endzone)."""
         segments = [
             _seg(0.0, 1.0, SIT),
             _seg(1.0, 5.0, GA),
@@ -103,8 +104,63 @@ class TestTrailingIncomplete:
         ]
         catalog = assemble_plays(segments, game_meta)
 
-        assert len(catalog.plays) == 1
-        assert catalog.quality_metrics.orphaned_segments == 2  # situation + sideline
+        assert len(catalog.plays) == 2
+        assert catalog.plays[1].endzone is None  # doublet
+        assert catalog.plays[1].sideline.camera_angle == CameraAngle.SIDELINE
+        assert catalog.quality_metrics.orphaned_segments == 0
+
+
+class TestDoubletPlays:
+    def test_doublet_emitted_when_sit_interrupts(self, game_meta: GameMetadata) -> None:
+        """SIT → GA → SIT should emit a doublet (no endzone), not orphan."""
+        segments = [
+            _seg(0.0, 1.0, SIT),
+            _seg(1.0, 5.0, GA),  # sideline (combined clip, no endzone cut)
+            _seg(5.0, 6.0, SIT),  # next play's situation
+            _seg(6.0, 10.0, GA),
+            _seg(10.0, 14.0, GA),
+        ]
+        catalog = assemble_plays(segments, game_meta)
+
+        assert len(catalog.plays) == 2
+        # First play is a doublet
+        assert catalog.plays[0].endzone is None
+        assert catalog.plays[0].sideline.start_time == 1.0
+        # Second play is a full triplet
+        assert catalog.plays[1].endzone is not None
+        assert catalog.quality_metrics.orphaned_segments == 0
+
+    def test_multiple_consecutive_doublets(self, game_meta: GameMetadata) -> None:
+        """Multiple SIT → GA → SIT → GA patterns."""
+        segments = [
+            _seg(0.0, 1.0, SIT),
+            _seg(1.0, 5.0, GA),
+            _seg(5.0, 6.0, SIT),
+            _seg(6.0, 10.0, GA),
+            _seg(10.0, 11.0, SIT),
+            _seg(11.0, 15.0, GA),
+        ]
+        catalog = assemble_plays(segments, game_meta)
+
+        assert len(catalog.plays) == 3
+        for play in catalog.plays:
+            assert play.endzone is None  # all doublets
+        assert catalog.quality_metrics.orphaned_segments == 0
+
+    def test_mixed_doublets_and_triplets(self, game_meta: GameMetadata) -> None:
+        """Mix of SIT→GA and SIT→GA→GA patterns."""
+        segments = [
+            _seg(0.0, 1.0, SIT),
+            _seg(1.0, 5.0, GA),  # doublet
+            _seg(5.0, 6.0, SIT),
+            _seg(6.0, 10.0, GA),  # triplet
+            _seg(10.0, 14.0, GA),
+        ]
+        catalog = assemble_plays(segments, game_meta)
+
+        assert len(catalog.plays) == 2
+        assert catalog.plays[0].endzone is None  # doublet
+        assert catalog.plays[1].endzone is not None  # triplet
 
 
 class TestEmptyInput:

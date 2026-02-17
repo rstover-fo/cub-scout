@@ -1,4 +1,4 @@
-"""Tests for film_parser.frame_classifier — feature computation and segment classification."""
+"""Tests for film_parser.frame_classifier — black ratio based classification."""
 
 from unittest.mock import MagicMock, patch
 
@@ -18,17 +18,24 @@ class TestComputeFrameFeatures:
         features = _compute_frame_features(frame)
         assert "color_variance" in features
         assert "edge_density" in features
+        assert "black_ratio" in features
 
-    def test_uniform_frame_low_variance(self) -> None:
+    def test_all_black_frame(self) -> None:
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        features = _compute_frame_features(frame)
+        assert features["black_ratio"] == 1.0
+
+    def test_all_white_frame(self) -> None:
+        frame = np.full((100, 200, 3), 255, dtype=np.uint8)
+        features = _compute_frame_features(frame)
+        assert features["black_ratio"] == 0.0
+
+    def test_mixed_frame_black_ratio(self) -> None:
         frame = np.full((100, 200, 3), 128, dtype=np.uint8)
+        # Top half black
+        frame[:50, :, :] = 0
         features = _compute_frame_features(frame)
-        assert features["color_variance"] == 0.0
-
-    def test_high_variance_frame(self) -> None:
-        rng = np.random.default_rng(42)
-        frame = rng.integers(0, 256, (100, 200, 3), dtype=np.uint8)
-        features = _compute_frame_features(frame)
-        assert features["color_variance"] > 0
+        assert 0.4 < features["black_ratio"] < 0.6
 
     def test_edge_density_range(self) -> None:
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -45,34 +52,42 @@ class TestClassifySegment:
         assert result == SegmentType.GAME_ACTION
 
     @patch("src.film_parser.frame_classifier.sample_frames")
-    def test_low_variance_high_edge_low_motion_is_situation(self, mock_sample: MagicMock) -> None:
-        # Three identical low-variance frames with edge structure
+    def test_high_black_ratio_is_situation(self, mock_sample: MagicMock) -> None:
+        """Frames with >20% black pixels (like Catapult scoreboard) -> SITUATION."""
+        # Simulate scoreboard: ~66% black
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
-        # Add horizontal lines to create edge density
-        for row in range(0, 100, 5):
-            frame[row, :, :] = 255
+        frame[0:34, :, :] = 150  # top third non-black
         mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
 
-        seg = Segment(start_time=0.0, end_time=2.0)
-        result = classify_segment(
-            "/fake/video.mp4",
-            seg,
-            color_var_threshold=50000,
-            edge_density_threshold=0.01,
-            motion_threshold=50.0,
-        )
+        seg = Segment(start_time=0.0, end_time=3.0)
+        result = classify_segment("/fake/video.mp4", seg)
         assert result == SegmentType.SITUATION
 
     @patch("src.film_parser.frame_classifier.sample_frames")
-    def test_high_motion_is_game_action(self, mock_sample: MagicMock) -> None:
-        frame1 = np.zeros((100, 200, 3), dtype=np.uint8)
-        frame2 = np.full((100, 200, 3), 200, dtype=np.uint8)
-        frame3 = np.zeros((100, 200, 3), dtype=np.uint8)
-        mock_sample.return_value = [frame1, frame2, frame3]
+    def test_low_black_ratio_is_game_action(self, mock_sample: MagicMock) -> None:
+        """Frames with <1% black pixels (field footage) -> GAME_ACTION."""
+        frame = np.full((100, 200, 3), 100, dtype=np.uint8)  # all mid-gray, 0% black
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
 
-        seg = Segment(start_time=0.0, end_time=2.0)
-        result = classify_segment("/fake/video.mp4", seg, motion_threshold=1.0)
+        seg = Segment(start_time=0.0, end_time=3.0)
+        result = classify_segment("/fake/video.mp4", seg)
         assert result == SegmentType.GAME_ACTION
+
+    @patch("src.film_parser.frame_classifier.sample_frames")
+    def test_custom_threshold(self, mock_sample: MagicMock) -> None:
+        """Custom black_ratio_threshold overrides default."""
+        # 50% black frame
+        frame = np.full((100, 200, 3), 128, dtype=np.uint8)
+        frame[:50, :, :] = 0
+        mock_sample.return_value = [frame.copy(), frame.copy(), frame.copy()]
+
+        seg = Segment(start_time=0.0, end_time=3.0)
+        # With high threshold, should be GAME_ACTION
+        result = classify_segment("/fake/video.mp4", seg, black_ratio_threshold=0.60)
+        assert result == SegmentType.GAME_ACTION
+        # With low threshold, should be SITUATION
+        result = classify_segment("/fake/video.mp4", seg, black_ratio_threshold=0.30)
+        assert result == SegmentType.SITUATION
 
 
 class TestClassifySegments:
@@ -81,10 +96,10 @@ class TestClassifySegments:
         mock_cap = MagicMock()
         mock_cv2.VideoCapture.return_value = mock_cap
         mock_cv2.CAP_PROP_POS_MSEC = 0
-        # Return enough frames for each segment (3 timestamps * 2 segments = 6 reads)
-        mock_cap.read.return_value = (True, np.zeros((100, 200, 3), dtype=np.uint8))
+        # Return bright frames (no black = game action)
+        mock_cap.read.return_value = (True, np.full((100, 200, 3), 128, dtype=np.uint8))
         mock_cv2.COLOR_BGR2GRAY = 6
-        mock_cv2.cvtColor.return_value = np.zeros((100, 200), dtype=np.uint8)
+        mock_cv2.cvtColor.return_value = np.full((100, 200), 128, dtype=np.uint8)
         mock_cv2.Canny.return_value = np.zeros((100, 200), dtype=np.uint8)
 
         segments = [
@@ -95,7 +110,6 @@ class TestClassifySegments:
         result = classify_segments("/fake/video.mp4", segments)
 
         assert len(result) == 2
-        # Video should be opened only once
         mock_cv2.VideoCapture.assert_called_once_with("/fake/video.mp4")
         mock_cap.release.assert_called_once()
 
@@ -104,9 +118,9 @@ class TestClassifySegments:
         mock_cap = MagicMock()
         mock_cv2.VideoCapture.return_value = mock_cap
         mock_cv2.CAP_PROP_POS_MSEC = 0
-        mock_cap.read.return_value = (True, np.zeros((100, 200, 3), dtype=np.uint8))
+        mock_cap.read.return_value = (True, np.full((100, 200, 3), 128, dtype=np.uint8))
         mock_cv2.COLOR_BGR2GRAY = 6
-        mock_cv2.cvtColor.return_value = np.zeros((100, 200), dtype=np.uint8)
+        mock_cv2.cvtColor.return_value = np.full((100, 200), 128, dtype=np.uint8)
         mock_cv2.Canny.return_value = np.zeros((100, 200), dtype=np.uint8)
 
         segments = [

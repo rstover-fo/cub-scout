@@ -6,6 +6,7 @@ import numpy as np
 
 from src.film_parser.models import Segment, SegmentType, SituationData
 from src.film_parser.ocr_extract import (
+    _parse_catapult_format,
     _parse_clock,
     _parse_down_distance,
     _parse_play_number,
@@ -148,20 +149,86 @@ class TestParseYardLine:
 
 
 # ---------------------------------------------------------------------------
+# Catapult-specific format parser
+# ---------------------------------------------------------------------------
+
+
+class TestParseCatapultFormat:
+    def test_ordinal_first(self):
+        """Values section with ordinal at start: '1ST 10 25 14:28'."""
+        text = "OKLAHOMA KENT STATE r 17 0 2ND DOWN TO GO BALL ON Main Clock 1ST 10 25 14:28"
+        result = _parse_catapult_format(text)
+        assert result is not None
+        assert result.quarter == 2
+        assert result.down == 1
+        assert result.distance == 10
+        assert result.yard_line == "25"
+        assert result.clock == "14:28"
+
+    def test_ordinal_last(self):
+        """Values section with ordinal at end: '3 37 11:44 3RD'."""
+        text = "OKLAHOMA KENT STATE Q 0 0 1ST DOWN TO GO BALL ON Main Clock 3 37 11:44 3RD"
+        result = _parse_catapult_format(text)
+        assert result is not None
+        assert result.quarter == 1
+        assert result.down == 3
+        assert result.distance == 3
+        assert result.yard_line == "37"
+        assert result.clock == "11:44"
+
+    def test_fourth_quarter(self):
+        text = "OKLAHOMA KENT STATE QJ 44 0 4TH DOWN TO GO BALL ON Main Clock 15 31 5:39 1ST"
+        result = _parse_catapult_format(text)
+        assert result is not None
+        assert result.quarter == 4
+        assert result.down == 1
+        assert result.distance == 15
+        assert result.yard_line == "31"
+        assert result.clock == "5:39"
+
+    def test_double_space_main_clock(self):
+        """Handle 'Main  Clock' (double space OCR artifact)."""
+        text = "OKLAHOMA KENT STATE 0 44 0 K 4TH DOWN TO GO BALL ON Main  Clock 1 45 4:00 4TH"
+        result = _parse_catapult_format(text)
+        assert result is not None
+        assert result.quarter == 4
+        assert result.down == 4
+        assert result.distance == 1
+        assert result.yard_line == "45"
+        assert result.clock == "4:00"
+
+    def test_no_catapult_format(self):
+        """Non-Catapult text returns None."""
+        result = _parse_catapult_format("Q2 3RD & 7 12:30 OPP 40")
+        assert result is None
+
+    def test_empty(self):
+        result = _parse_catapult_format("")
+        assert result is None
+
+    def test_preserves_raw_text(self):
+        text = "OKLAHOMA KENT STATE Q 7 0 1ST DOWN TO GO BALL ON Main Clock 2ND 6 22 9:22"
+        result = _parse_catapult_format(text)
+        assert result is not None
+        assert result.raw_ocr_text == text
+
+
+# ---------------------------------------------------------------------------
 # OCR integration: extract_situation_data
 # ---------------------------------------------------------------------------
 
 
 def _make_ocr_result(text_blocks: list[str]):
-    """Build a PaddleOCR-shaped result from a list of text strings."""
-    return [[[[[0, 0], [100, 0], [100, 30], [0, 30]], (text, 0.95)] for text in text_blocks]]
+    """Build a PaddleOCR 3.x-shaped result from a list of text strings."""
+    page = {"rec_texts": text_blocks, "rec_scores": [0.95] * len(text_blocks)}
+    return [page]
 
 
 class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_full_extraction(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = _make_ocr_result(
+        mock_ocr.predict.return_value = _make_ocr_result(
             ["Q2", "3RD & 7", "12:30", "PLAY 15", "OPP 40"]
         )
         mock_get_ocr.return_value = mock_ocr
@@ -181,7 +248,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_partial_extraction(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = _make_ocr_result(["Q1", "5:00"])
+        mock_ocr.predict.return_value = _make_ocr_result(["Q1", "5:00"])
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -196,7 +263,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_empty_ocr(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = [[]]
+        mock_ocr.predict.return_value = [[]]
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -209,7 +276,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_none_ocr_result(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = None
+        mock_ocr.predict.return_value = None
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -220,7 +287,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_ocr_exception(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.side_effect = RuntimeError("OCR engine crashed")
+        mock_ocr.predict.side_effect = RuntimeError("OCR engine crashed")
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -232,7 +299,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_garbage_text(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = _make_ocr_result(["xxxx", "!@#$", "????"])
+        mock_ocr.predict.return_value = _make_ocr_result(["xxxx", "!@#$", "????"])
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)
@@ -247,7 +314,7 @@ class TestExtractSituationData:
     @patch("src.film_parser.ocr_extract._get_ocr")
     def test_goal_line(self, mock_get_ocr):
         mock_ocr = MagicMock()
-        mock_ocr.ocr.return_value = _make_ocr_result(["1ST & GOAL", "Q4", "0:15"])
+        mock_ocr.predict.return_value = _make_ocr_result(["1ST & GOAL", "Q4", "0:15"])
         mock_get_ocr.return_value = mock_ocr
 
         frame = np.zeros((100, 200, 3), dtype=np.uint8)

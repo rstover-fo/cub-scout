@@ -19,11 +19,13 @@ def _get_ocr() -> PaddleOCR:
     """Lazy singleton PaddleOCR instance."""
     global _ocr
     if _ocr is None:
-        _ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        # Suppress PaddleOCR's verbose logging
+        logging.getLogger("ppocr").setLevel(logging.WARNING)
+        _ocr = PaddleOCR(use_angle_cls=True, lang="en")
     return _ocr
 
 
-# Regex patterns for Catapult situation overlay
+# Regex patterns for broadcast-style overlays (e.g. "2ND & 7")
 _QUARTER_PREFIX = re.compile(r"(?:Q|QTR)\s*([1-4])", re.IGNORECASE)
 _QUARTER_SUFFIX = re.compile(r"([1-4])(?:ST|ND|RD|TH)\s*(?:QTR|QUARTER)", re.IGNORECASE)
 _DOWN_DISTANCE = re.compile(r"([1-4])(?:ST|ND|RD|TH)\s*(?:&|AND)\s*(\d+|GOAL)", re.IGNORECASE)
@@ -32,18 +34,83 @@ _PLAY_NUMBER_LABELED = re.compile(r"(?:PLAY|#)\s*(\d+)", re.IGNORECASE)
 _YARD_LINE = re.compile(r"\b([A-Z]{2,})\s+(\d{1,2})\b", re.IGNORECASE)
 _YARD_LINE_EXCLUDE = {"play", "qtr", "quarter", "q", "st", "nd", "rd", "th", "and", "vs"}
 
+# Catapult-specific pattern: "{QUARTER_ORD} DOWN TO GO BALL ON Main Clock {values}"
+# Values section contains DOWN_ORD, DISTANCE, YARD_LINE, CLOCK in variable order.
+_CATAPULT_HEADER = re.compile(
+    r"([1-4])(?:ST|ND|RD|TH)\s+DOWN\s+TO\s+GO\s+BALL\s+ON\s+(?:Main\s+)?Clock\s+(.*)",
+    re.IGNORECASE,
+)
+_ORDINAL = re.compile(r"([1-4])(?:ST|ND|RD|TH)", re.IGNORECASE)
+_PLAIN_NUMBER = re.compile(r"\b(\d{1,2})\b")
+
 
 def _run_ocr(frame: np.ndarray) -> str:
     """Run PaddleOCR on a frame and return concatenated text."""
     ocr = _get_ocr()
-    result = ocr.ocr(frame, cls=True)
+    result = ocr.predict(frame)
     if not result or not result[0]:
         return ""
-    texts = []
-    for line in result[0]:
-        if line and len(line) >= 2 and line[1]:
-            texts.append(str(line[1][0]))
-    return " ".join(texts)
+    page = result[0]
+    texts = page.get("rec_texts", []) if hasattr(page, "get") else getattr(page, "rec_texts", [])
+    return " ".join(str(t) for t in texts if t)
+
+
+def _parse_catapult_format(text: str) -> SituationData | None:
+    """Parse Catapult-specific overlay format.
+
+    Catapult OCR reads as:
+      {TEAMS} {SCORES} {QUARTER_ORD} DOWN TO GO BALL ON Main Clock {values}
+
+    The quarter ordinal appears before "DOWN". After "Main Clock", the values
+    section contains the down ordinal, distance, yard line, and clock in
+    variable order (ordinal can appear first or last).
+
+    Returns SituationData if the Catapult format is detected, else None.
+    """
+    match = _CATAPULT_HEADER.search(text)
+    if not match:
+        return None
+
+    quarter = int(match.group(1))
+    values_text = match.group(2).strip()
+
+    # Find clock (MM:SS)
+    clock_match = _CLOCK.search(values_text)
+    clock = clock_match.group(1) if clock_match else None
+
+    # Find down ordinal in the values section
+    down: int | None = None
+    ord_match = _ORDINAL.search(values_text)
+    if ord_match:
+        down = int(ord_match.group(1))
+
+    # Remove the clock and ordinal to isolate the two plain numbers (distance, yard_line)
+    remaining = values_text
+    if clock_match:
+        remaining = remaining[: clock_match.start()] + remaining[clock_match.end() :]
+    if ord_match:
+        remaining = remaining[: ord_match.start()] + remaining[ord_match.end() :]
+
+    # Extract the two remaining plain numbers: first = distance, second = yard_line
+    numbers = _PLAIN_NUMBER.findall(remaining)
+    distance: int | None = int(numbers[0]) if len(numbers) >= 1 else None
+    yard_line: str | None = str(numbers[1]) if len(numbers) >= 2 else None
+
+    # Try to extract play number from the full text (before the header)
+    play_number: int | None = None
+    pn_match = _PLAY_NUMBER_LABELED.search(text)
+    if pn_match:
+        play_number = int(pn_match.group(1))
+
+    return SituationData(
+        quarter=quarter,
+        down=down,
+        distance=distance,
+        yard_line=yard_line,
+        clock=clock,
+        play_number=play_number,
+        raw_ocr_text=text,
+    )
 
 
 def _parse_quarter(text: str) -> int | None:
@@ -98,6 +165,7 @@ def _parse_yard_line(text: str) -> str | None:
 def extract_situation_data(frame: np.ndarray) -> SituationData:
     """Extract situation metadata from a single frame via OCR.
 
+    Tries Catapult-specific layout parser first, falls back to generic regexes.
     Never raises on OCR failure -- returns partial data with raw_ocr_text.
     """
     try:
@@ -106,6 +174,12 @@ def extract_situation_data(frame: np.ndarray) -> SituationData:
         logger.warning("OCR failed on frame", exc_info=True)
         return SituationData(raw_ocr_text="")
 
+    # Try Catapult-specific parser first (detects "DOWN TO GO BALL ON ... Clock")
+    catapult_result = _parse_catapult_format(raw_text)
+    if catapult_result is not None:
+        return catapult_result
+
+    # Fall back to generic broadcast-style regex parsing
     quarter = _parse_quarter(raw_text)
     if quarter is None:
         logger.debug("Could not parse quarter from: %s", raw_text)

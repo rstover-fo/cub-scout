@@ -67,12 +67,12 @@ class GameMetadata(BaseModel):
 
 
 class Play(BaseModel):
-    """A single play composed of a situation-sideline-endzone triplet."""
+    """A single play — either a full triplet or doublet (no separate endzone)."""
 
     play_number: int
     situation: Segment
     sideline: Segment
-    endzone: Segment
+    endzone: Segment | None = None
     situation_data: SituationData | None = None
 
 

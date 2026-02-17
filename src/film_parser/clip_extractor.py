@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 
-from src.film_parser.models import PlayCatalog
+from src.film_parser.models import PlayCatalog, Segment
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +84,12 @@ def extract_play_clips(
     for i, play in enumerate(play_catalog.plays, start=1):
         logger.info("Extracting clips for play %d/%d (play_number=%d)", i, total, play.play_number)
 
-        segments = [
+        segments: list[tuple[str, Segment]] = [
             ("situation", play.situation),
             ("sideline", play.sideline),
-            ("endzone", play.endzone),
         ]
+        if play.endzone is not None:
+            segments.append(("endzone", play.endzone))
 
         for label, segment in segments:
             filename = f"play_{play.play_number:03d}_{label}.mp4"

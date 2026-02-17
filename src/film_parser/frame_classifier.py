@@ -1,4 +1,9 @@
-"""Classify video segments as SITUATION or GAME_ACTION using OpenCV heuristics."""
+"""Classify video segments as SITUATION or GAME_ACTION using OpenCV heuristics.
+
+Calibrated against Catapult All-22 exports where situation frames are scoreboard
+graphics with large black regions (~66% of pixels), while game action frames are
+live field footage (<1% black pixels).
+"""
 
 import logging
 from pathlib import Path
@@ -11,45 +16,40 @@ from src.film_parser.utils import sample_frames
 
 logger = logging.getLogger(__name__)
 
+# Default threshold: fraction of pixels below brightness 30 (out of 255).
+# Situation frames: ~0.66 (scoreboard graphics on black background)
+# Game action frames: ~0.004 (live field footage)
+# Threshold of 0.20 gives wide separation margin.
+DEFAULT_BLACK_RATIO_THRESHOLD = 0.20
+
 
 def _compute_frame_features(frame: np.ndarray) -> dict[str, float]:
     """Compute visual features from a single BGR frame.
 
-    Args:
-        frame: BGR image as numpy array.
-
     Returns:
-        Dict with color_variance and edge_density.
+        Dict with color_variance, edge_density, and black_ratio.
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 100, 200)
     return {
         "color_variance": float(np.var(frame)),
         "edge_density": float(np.count_nonzero(edges) / edges.size),
+        "black_ratio": float(np.sum(gray < 30) / gray.size),
     }
 
 
 def classify_segment(
     video_path: str | Path,
     segment: Segment,
-    color_var_threshold: float = 500.0,
-    edge_density_threshold: float = 0.15,
-    motion_threshold: float = 2.0,
+    black_ratio_threshold: float = DEFAULT_BLACK_RATIO_THRESHOLD,
 ) -> SegmentType:
     """Classify a single segment as SITUATION or GAME_ACTION.
 
     Samples 3 evenly-spaced frames (25%, 50%, 75% of duration) and uses
-    color variance, edge density, and inter-frame motion to decide.
+    majority vote on black pixel ratio to classify.
 
-    Args:
-        video_path: Path to the video file.
-        segment: Segment with start_time and end_time.
-        color_var_threshold: Max color variance for SITUATION.
-        edge_density_threshold: Min edge density for SITUATION.
-        motion_threshold: Max inter-frame motion for SITUATION.
-
-    Returns:
-        SegmentType.SITUATION or SegmentType.GAME_ACTION.
+    Situation frames (Catapult scoreboard graphics) have ~66% black pixels.
+    Game action frames (live field footage) have <1% black pixels.
     """
     duration = segment.end_time - segment.start_time
     timestamps = [segment.start_time + duration * frac for frac in (0.25, 0.50, 0.75)]
@@ -59,23 +59,12 @@ def classify_segment(
         return SegmentType.GAME_ACTION
 
     situation_votes = 0
-    for i, frame in enumerate(frames):
+    for frame in frames:
         features = _compute_frame_features(frame)
-
-        motion = 0.0
-        if i > 0:
-            motion = float(np.mean(np.abs(frame.astype(float) - frames[i - 1].astype(float))))
-
-        is_situation = (
-            features["color_variance"] < color_var_threshold
-            and features["edge_density"] > edge_density_threshold
-            and motion < motion_threshold
-        )
-        if is_situation:
+        if features["black_ratio"] > black_ratio_threshold:
             situation_votes += 1
 
-    majority = len(frames) / 2
-    if situation_votes > majority:
+    if situation_votes > len(frames) / 2:
         return SegmentType.SITUATION
     return SegmentType.GAME_ACTION
 
@@ -83,14 +72,9 @@ def classify_segment(
 def _classify_segment_with_cap(
     cap: cv2.VideoCapture,
     segment: Segment,
-    color_var_threshold: float = 500.0,
-    edge_density_threshold: float = 0.15,
-    motion_threshold: float = 2.0,
+    black_ratio_threshold: float = DEFAULT_BLACK_RATIO_THRESHOLD,
 ) -> SegmentType:
-    """Classify a single segment using a pre-opened video capture.
-
-    Internal helper for batch classification -- avoids re-opening the video per segment.
-    """
+    """Classify a segment using a pre-opened video capture (batch optimization)."""
     duration = segment.end_time - segment.start_time
     timestamps = [segment.start_time + duration * frac for frac in (0.25, 0.50, 0.75)]
 
@@ -105,23 +89,12 @@ def _classify_segment_with_cap(
         return SegmentType.GAME_ACTION
 
     situation_votes = 0
-    for i, frame in enumerate(frames):
+    for frame in frames:
         features = _compute_frame_features(frame)
-
-        motion = 0.0
-        if i > 0:
-            motion = float(np.mean(np.abs(frame.astype(float) - frames[i - 1].astype(float))))
-
-        is_situation = (
-            features["color_variance"] < color_var_threshold
-            and features["edge_density"] > edge_density_threshold
-            and motion < motion_threshold
-        )
-        if is_situation:
+        if features["black_ratio"] > black_ratio_threshold:
             situation_votes += 1
 
-    majority = len(frames) / 2
-    if situation_votes > majority:
+    if situation_votes > len(frames) / 2:
         return SegmentType.SITUATION
     return SegmentType.GAME_ACTION
 
@@ -129,14 +102,7 @@ def _classify_segment_with_cap(
 def classify_segments(video_path: str | Path, segments: list[Segment]) -> list[Segment]:
     """Classify all segments and return updated copies.
 
-    Opens the video capture once and reuses it for all segments (optimized batch path).
-
-    Args:
-        video_path: Path to the video file.
-        segments: List of segments to classify.
-
-    Returns:
-        New list of Segment objects with segment_type set.
+    Opens the video capture once and reuses it for all segments.
     """
     classified = []
     situation_count = 0
