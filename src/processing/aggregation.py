@@ -1,11 +1,13 @@
 # src/processing/aggregation.py
 """Player profile aggregation from scouting reports."""
 
+import json
 import logging
+from datetime import date
 
 from ..clients.anthropic import get_anthropic_client
 from ..config import CLAUDE_MODEL
-from ..storage.db import get_connection
+from ..storage.db import get_connection, insert_timeline_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -123,3 +125,39 @@ async def aggregate_player_profile(player_id: int) -> dict:
         "traits": traits,
         "composite_grade": grade,
     }
+
+
+async def refresh_player_profile(player_id: int) -> dict:
+    """Recalculate sentiment, traits, and grade then persist a timeline snapshot.
+
+    Called after a new report is linked to a player (e.g. pending-link approval).
+
+    Returns the refreshed profile dict with the new snapshot_id.
+    """
+    profile = await aggregate_player_profile(player_id)
+
+    async with get_connection() as conn:
+        snapshot_id = await insert_timeline_snapshot(
+            conn=conn,
+            player_id=player_id,
+            snapshot_date=date.today(),
+            sentiment_score=profile["sentiment_score"],
+            grade_at_time=profile["composite_grade"],
+            traits_at_time=profile["traits"],
+            sources_count=profile["report_count"],
+        )
+
+        cur = conn.cursor()
+        await cur.execute(
+            """
+            UPDATE scouting.players
+            SET composite_grade = %s,
+                traits = %s,
+                last_updated = NOW()
+            WHERE id = %s
+            """,
+            (profile["composite_grade"], json.dumps(profile["traits"]), player_id),
+        )
+        await conn.commit()
+
+    return {**profile, "snapshot_id": snapshot_id}

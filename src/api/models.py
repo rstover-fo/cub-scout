@@ -36,6 +36,18 @@ class PlayerDetail(BaseModel):
     last_updated: datetime | None
 
 
+class ScoutingReport(BaseModel):
+    """Summarized scouting report from a crawler."""
+
+    id: int
+    source_url: str
+    source_name: str
+    summary: str | None
+    sentiment_score: float | None
+    published_at: datetime | None
+    crawled_at: datetime
+
+
 class TimelineSnapshot(BaseModel):
     """Player timeline entry."""
 
@@ -54,7 +66,28 @@ class PlayerWithTimeline(BaseModel):
 
     player: PlayerDetail
     timeline: list[TimelineSnapshot]
+    reports: list[ScoutingReport]
     report_count: int
+
+
+class PendingLink(BaseModel):
+    """A match candidate from an agent for review."""
+
+    id: int
+    source_name: str
+    source_team: str | None
+    source_context: dict | None
+    candidate_roster_id: int | None
+    match_score: float
+    match_method: str
+    status: str
+    created_at: datetime
+
+
+class LinkReviewUpdate(BaseModel):
+    """Request to update a link status."""
+
+    status: str  # approved, rejected
 
 
 class TeamSummary(BaseModel):

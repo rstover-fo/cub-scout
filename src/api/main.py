@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 load_dotenv()
 
-from ..processing.aggregation import get_player_reports  # noqa: E402
+from ..processing.aggregation import get_player_reports, refresh_player_profile  # noqa: E402
 from ..processing.comparison import compare_players, find_similar_players  # noqa: E402
 from ..processing.draft import build_draft_board, get_position_rankings  # noqa: E402
 from ..processing.transfer_portal import (  # noqa: E402
@@ -34,6 +34,9 @@ from ..storage.db import (  # noqa: E402
     get_alert,
     get_all_alert_history,
     get_connection,
+    link_report_to_player,
+    get_pending_link,
+    get_pending_links,
     get_player_timeline,
     get_player_transfer_history,
     get_scouting_player,
@@ -45,6 +48,8 @@ from ..storage.db import (  # noqa: E402
     init_pool,
     mark_alert_read,
     remove_from_watch_list,
+    update_pending_link_status,
+    upsert_scouting_player,
 )
 from .models import (  # noqa: E402
     Alert,
@@ -53,11 +58,14 @@ from .models import (  # noqa: E402
     ComparisonResult,
     DestinationPrediction,
     DraftPlayerResponse,
+    LinkReviewUpdate,
+    PendingLink,
     PlayerDetail,
     PlayerSummary,
     PlayerWithTimeline,
     PortalImpact,
     PortalPlayer,
+    ScoutingReport,
     TeamSummary,
     TeamTransferActivity,
     TimelineSnapshot,
@@ -66,7 +74,7 @@ from .models import (  # noqa: E402
     WatchList,
     WatchListCreate,
 )
-
+from .routers import admin
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -83,6 +91,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(admin.router)
 
 @app.get("/")
 async def root():
@@ -134,18 +143,34 @@ async def list_players(
 
 @app.get("/players/{player_id}", response_model=PlayerWithTimeline)
 async def get_player(player_id: int):
-    """Get player detail with timeline."""
+    """Get player detail with timeline and reports."""
     async with get_connection() as conn:
         player = await get_scouting_player(conn, player_id)
         if not player:
             raise HTTPException(status_code=404, detail="Player not found")
 
         timeline = await get_player_timeline(conn, player_id)
-        reports = await get_player_reports(player_id)
+        raw_reports = await get_player_reports(player_id)
+
+        # Convert raw reports to ScoutingReport model
+        reports = []
+        for r in raw_reports:
+            reports.append(
+                ScoutingReport(
+                    id=r["id"],
+                    source_url=r["source_url"],
+                    source_name=r["source_name"],
+                    summary=r.get("summary"),
+                    sentiment_score=r.get("sentiment_score"),
+                    published_at=r.get("published_at"),
+                    crawled_at=r["crawled_at"],
+                )
+            )
 
         return PlayerWithTimeline(
             player=PlayerDetail(**player),
             timeline=[TimelineSnapshot(**t) for t in timeline],
+            reports=reports,
             report_count=len(reports),
         )
 
@@ -490,3 +515,7 @@ async def create_portal_snapshot():
     """Generate a portal snapshot (admin)."""
     snapshot = await generate_portal_snapshot()
     return snapshot
+
+
+
+# Transfer Portal endpoints

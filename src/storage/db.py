@@ -1014,6 +1014,29 @@ async def insert_pending_link(
     return link_id
 
 
+async def get_pending_link(
+    conn: psycopg.AsyncConnection,
+    link_id: int,
+) -> dict | None:
+    """Get a single pending link by ID."""
+    cur = conn.cursor()
+    await cur.execute(
+        """
+        SELECT id, source_name, source_team, source_context,
+               candidate_roster_id, match_score, match_method,
+               status, created_at
+        FROM scouting.pending_links
+        WHERE id = %s
+        """,
+        (link_id,),
+    )
+    row = await cur.fetchone()
+    if not row:
+        return None
+    columns = [desc[0] for desc in cur.description]
+    return dict(zip(columns, row))
+
+
 async def get_pending_links(
     conn: psycopg.AsyncConnection,
     status: str = "pending",
